@@ -1,120 +1,117 @@
 import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
+import { registerUser } from './auth/registerUser'
 import heroImg from './assets/hero.png'
 import './App.css'
 
+const initialForm = {
+  name: '',
+  email: '',
+  password: '',
+}
+
 function App() {
-  const [count, setCount] = useState(0)
+  const [form, setForm] = useState(initialForm)
+  const [status, setStatus] = useState({ type: 'idle', message: '' })
+  const [registeredUser, setRegisteredUser] = useState(null)
+
+  function handleChange(event) {
+    const { name, value } = event.target
+    setForm((currentForm) => ({
+      ...currentForm,
+      [name]: value,
+    }))
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    setStatus({ type: 'loading', message: 'Creando cuenta...' })
+    setRegisteredUser(null)
+
+    try {
+      const user = await registerUser(form)
+      setRegisteredUser(user)
+      setForm(initialForm)
+      setStatus({ type: 'success', message: 'Cuenta creada correctamente.' })
+    } catch (error) {
+      setStatus({ type: 'error', message: error.message })
+    }
+  }
+
+  const isLoading = status.type === 'loading'
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
+    <main className="auth-page">
+      <section className="brand-panel" aria-label="Nova">
+        <img src={heroImg} alt="" className="brand-mark" />
         <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
+          <p className="eyebrow">Nova</p>
+          <h1>Chat cifrado</h1>
         </div>
       </section>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+      <section className="auth-panel" aria-labelledby="register-title">
+        <form className="auth-form" onSubmit={handleSubmit}>
+          <div className="form-heading">
+            <p className="eyebrow">Registro</p>
+            <h2 id="register-title">Crear cuenta</h2>
+          </div>
+
+          <label>
+            Nombre
+            <input
+              name="name"
+              type="text"
+              autoComplete="name"
+              value={form.name}
+              onChange={handleChange}
+              required
+            />
+          </label>
+
+          <label>
+            Correo
+            <input
+              name="email"
+              type="email"
+              autoComplete="email"
+              value={form.email}
+              onChange={handleChange}
+              required
+            />
+          </label>
+
+          <label>
+            Contraseña
+            <input
+              name="password"
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              value={form.password}
+              onChange={handleChange}
+              required
+            />
+          </label>
+
+          <button type="submit" disabled={isLoading}>
+            {isLoading ? 'Guardando...' : 'Registrarse'}
+          </button>
+
+          {status.message && (
+            <p className={`form-message ${status.type}`} role="status">
+              {status.message}
+            </p>
+          )}
+
+          {registeredUser && (
+            <div className="user-result">
+              <span>ID {registeredUser.id}</span>
+              <strong>{registeredUser.email}</strong>
+            </div>
+          )}
+        </form>
+      </section>
+    </main>
   )
 }
 
