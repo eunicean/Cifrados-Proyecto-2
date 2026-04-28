@@ -15,6 +15,41 @@ function base64ToArrayBuffer(base64) {
   return bytes.buffer
 }
 
+function pemToArrayBuffer(pem) {
+  const base64 = pem
+    .replace(/-----BEGIN [^-]+-----/g, '')
+    .replace(/-----END [^-]+-----/g, '')
+    .replace(/\s/g, '')
+
+  return base64ToArrayBuffer(base64)
+}
+
+async function importRsaPublicKey(publicKeyPem) {
+  return await window.crypto.subtle.importKey(
+    'spki',
+    pemToArrayBuffer(publicKeyPem),
+    {
+      name: 'RSA-OAEP',
+      hash: 'SHA-256',
+    },
+    false,
+    ['encrypt'],
+  )
+}
+
+async function importRsaPrivateKey(privateKeyPem) {
+  return await window.crypto.subtle.importKey(
+    'pkcs8',
+    pemToArrayBuffer(privateKeyPem),
+    {
+      name: 'RSA-OAEP',
+      hash: 'SHA-256',
+    },
+    false,
+    ['decrypt'],
+  )
+}
+
 /**
 
  * @param {string} plaintext - Mensaje en texto plano.
@@ -75,4 +110,82 @@ export async function decryptMessage(ciphertext, iv, rawAesKey) {
   )
 
   return decoder.decode(plaintextBuffer)
+}
+
+/**
+ * Cifra la clave AES efimera usando la llave publica RSA-OAEP del destinatario.
+ *
+ * @param {ArrayBuffer} rawAesKey - Clave AES exportada en bruto.
+ * @param {string} publicKeyPem - Llave publica RSA en formato PEM.
+ * @returns {string} Clave AES cifrada en Base64.
+ */
+export async function encryptAesKeyWithPublicKey(rawAesKey, publicKeyPem) {
+  const publicKey = await importRsaPublicKey(publicKeyPem)
+
+  const encryptedKey = await window.crypto.subtle.encrypt(
+    { name: 'RSA-OAEP' },
+    publicKey,
+    rawAesKey,
+  )
+
+  return arrayBufferToBase64(encryptedKey)
+}
+
+/**
+ * Recupera la clave AES usando la llave privada RSA-OAEP del destinatario.
+ *
+ * @param {string} encryptedKey - Clave AES cifrada en Base64.
+ * @param {string} privateKeyPem - Llave privada RSA en formato PEM PKCS#8.
+ * @returns {ArrayBuffer} Clave AES original en bruto.
+ */
+export async function decryptAesKeyWithPrivateKey(encryptedKey, privateKeyPem) {
+  const privateKey = await importRsaPrivateKey(privateKeyPem)
+
+  return await window.crypto.subtle.decrypt(
+    { name: 'RSA-OAEP' },
+    privateKey,
+    base64ToArrayBuffer(encryptedKey),
+  )
+}
+
+/**
+ * Cifra un mensaje y protege su clave AES con RSA-OAEP.
+ *
+ * @param {string} plaintext - Mensaje en texto plano.
+ * @param {string} recipientPublicKeyPem - Llave publica del destinatario.
+ * @returns {{ ciphertext: string, encrypted_key: string, iv: string, timestamp: string }}
+ */
+export async function encryptMessageForRecipient(plaintext, recipientPublicKeyPem) {
+  const encryptedMessage = await encryptMessage(plaintext)
+  const encryptedKey = await encryptAesKeyWithPublicKey(
+    encryptedMessage.rawAesKey,
+    recipientPublicKeyPem,
+  )
+
+  return {
+    ciphertext: encryptedMessage.ciphertext,
+    encrypted_key: encryptedKey,
+    iv: encryptedMessage.iv,
+    timestamp: encryptedMessage.timestamp,
+  }
+}
+
+/**
+ * Descifra un mensaje recibido recuperando primero la clave AES con RSA-OAEP.
+ *
+ * @param {{ ciphertext: string, encrypted_key: string, iv: string }} encryptedMessage
+ * @param {string} recipientPrivateKeyPem - Llave privada del destinatario.
+ * @returns {string} Mensaje en texto plano.
+ */
+export async function decryptMessageForRecipient(encryptedMessage, recipientPrivateKeyPem) {
+  const rawAesKey = await decryptAesKeyWithPrivateKey(
+    encryptedMessage.encrypted_key,
+    recipientPrivateKeyPem,
+  )
+
+  return await decryptMessage(
+    encryptedMessage.ciphertext,
+    encryptedMessage.iv,
+    rawAesKey,
+  )
 }
