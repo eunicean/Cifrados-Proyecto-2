@@ -21,6 +21,11 @@ export async function createGroup(groupForm) {
   return data.group || data
 }
 
+export async function loadUserGroups() {
+  const data = await apiRequest('/groups')
+  return data.groups || data || []
+}
+
 export async function sendEncryptedGroupMessage(groupMessageForm) {
   const keysData = await apiRequest(
     `/groups/${groupMessageForm.group_id}/members/keys`,

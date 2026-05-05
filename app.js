@@ -175,6 +175,73 @@ app.post('/groups', requireAuth, async (req, res) => {
   }
 })
 
+app.get('/groups', requireAuth, async (req, res) => {
+  try {
+    const { data: memberships, error: membershipError } = await supabase
+      .from('channel_members')
+      .select('channel_id')
+      .eq('user_id', req.auth.sub)
+
+    if (membershipError) throw new Error(membershipError.message)
+
+    const channelIds = memberships
+      .map((membership) => membership.channel_id)
+      .filter(Boolean)
+
+    if (channelIds.length === 0) {
+      res.json({ groups: [] })
+      return
+    }
+
+    const { data: channels, error: channelsError } = await supabase
+      .from('channels')
+      .select('id, name, created_at, created_by')
+      .in('id', channelIds)
+      .order('created_at', { ascending: false })
+
+    if (channelsError) throw new Error(channelsError.message)
+
+    const { data: allMembers, error: allMembersError } = await supabase
+      .from('channel_members')
+      .select('channel_id, user_id')
+      .in('channel_id', channelIds)
+
+    if (allMembersError) throw new Error(allMembersError.message)
+
+    const userIds = [...new Set(allMembers.map((member) => member.user_id).filter(Boolean))]
+    const { data: users, error: usersError } = await supabase
+      .from('user')
+      .select('id, name, email')
+      .in('id', userIds)
+
+    if (usersError) throw new Error(usersError.message)
+
+    res.json({
+      groups: channels.map((channel) => {
+        const members = allMembers
+          .filter((member) => member.channel_id === channel.id)
+          .map((member) => {
+            const user = users.find((currentUser) => currentUser.id === member.user_id)
+            return {
+              user_id: member.user_id,
+              name: user?.name || user?.email || member.user_id,
+              email: user?.email || '',
+            }
+          })
+
+        return {
+          ...channel,
+          description: `${members.length} miembro${members.length === 1 ? '' : 's'}`,
+          members,
+          member_ids: members.map((member) => member.user_id),
+        }
+      }),
+    })
+  } catch (error) {
+    sendError(res, error, 403)
+  }
+})
+
 app.get('/groups/:groupId/members/keys', requireAuth, async (req, res) => {
   try {
     await ensureChannelMember(req.params.groupId, req.auth.sub)
