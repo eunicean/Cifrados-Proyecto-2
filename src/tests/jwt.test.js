@@ -1,11 +1,11 @@
-import test from 'node:test'
-import assert from 'node:assert/strict'
-import { issueJwt, decodeJwtPayload, verifyJwt } from '../utils/jwt.js'
+import { describe, expect, test } from 'vitest'
+import { decodeJwtPayload, issueJwt, verifyJwt } from '../utils/jwt.js'
 
-test('genera un JWT valido y permite decodificar su payload', () => {
+describe('JWT utilities', () => {
+  test('genera un JWT valido y permite decodificar su payload', () => {
     const payload = {
-        id: 'user-1',
-        email: 'test@example.com',
+      id: 'user-1',
+      email: 'test@example.com',
     }
 
     const secret = 'super-secret-key'
@@ -13,64 +13,61 @@ test('genera un JWT valido y permite decodificar su payload', () => {
     const token = issueJwt(payload, secret, { expiresIn: '1h' })
     const decodedPayload = decodeJwtPayload(token)
 
-    assert.equal(token.split('.').length, 3)
+    expect(token.split('.')).toHaveLength(3)
+    expect(decodedPayload.id).toBe(payload.id)
+    expect(decodedPayload.email).toBe(payload.email)
+    expect(typeof decodedPayload.iat).toBe('number')
+    expect(typeof decodedPayload.exp).toBe('number')
+    expect(decodedPayload.exp).toBeGreaterThan(decodedPayload.iat)
+  })
 
-    assert.equal(decodedPayload.id, payload.id)
-    assert.equal(decodedPayload.email, payload.email)
-
-    assert.equal(typeof decodedPayload.iat, 'number')
-    assert.equal(typeof decodedPayload.exp, 'number')
-    assert.ok(decodedPayload.exp > decodedPayload.iat)
-    })
-
-test('verifica la firma y expiracion de un JWT valido', () => {
+  test('verifica la firma y expiracion de un JWT valido', () => {
     const secret = 'super-secret-key'
+
     const token = issueJwt(
-        {
+      {
         id: 'user-1',
         email: 'test@example.com',
-        },
-        secret,
-        { expiresIn: '1h' },
+      },
+      secret,
+      { expiresIn: '1h' },
     )
 
     const verifiedPayload = verifyJwt(token, secret)
 
-    assert.equal(verifiedPayload.id, 'user-1')
-    assert.equal(verifiedPayload.email, 'test@example.com')
-})
+    expect(verifiedPayload.id).toBe('user-1')
+    expect(verifiedPayload.email).toBe('test@example.com')
+  })
 
-test('rechaza un JWT con firma manipulada', () => {
-    const token = issueJwt({ id: 'user-1' }, 'secret-correcto', { expiresIn: '1h' })
-
-    assert.throws(
-        () => verifyJwt(token, 'secret-incorrecto'),
-        /JWT invalido/
-    )
-})
-
-    test('lanza error cuando falta el secret del JWT', () => {
-    const payload = {
-        id: 'user-1',
-        email: 'test@example.com',
-    }
-
-    assert.throws(
-        () => issueJwt(payload, '', { expiresIn: '1h' }),
-        /Falta la llave secreta/
-    )
+  test('rechaza un JWT con firma manipulada', () => {
+    const token = issueJwt({ id: 'user-1' }, 'secret-correcto', {
+      expiresIn: '1h',
     })
 
-    test('lanza error cuando el formato de expiracion no es valido', () => {
+    expect(() => verifyJwt(token, 'secret-incorrecto')).toThrow(/JWT invalido/)
+  })
+
+  test('lanza error cuando falta el secret del JWT', () => {
     const payload = {
-        id: 'user-1',
-        email: 'test@example.com',
+      id: 'user-1',
+      email: 'test@example.com',
+    }
+
+    expect(() => issueJwt(payload, '', { expiresIn: '1h' })).toThrow(
+      /Falta la llave secreta/,
+    )
+  })
+
+  test('lanza error cuando el formato de expiracion no es valido', () => {
+    const payload = {
+      id: 'user-1',
+      email: 'test@example.com',
     }
 
     const secret = 'super-secret-key'
 
-    assert.throws(
-        () => issueJwt(payload, secret, { expiresIn: 'una-hora' }),
-        /Usa un formato de expiracion/
+    expect(() => issueJwt(payload, secret, { expiresIn: 'una-hora' })).toThrow(
+      /Usa un formato de expiracion/,
     )
+  })
 })
