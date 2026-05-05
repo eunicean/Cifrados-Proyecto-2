@@ -1,153 +1,206 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  createGroup,
+  decryptMessagesWithPrivateKey,
+  loadUserGroups,
+  loadUserMessages,
+  sendEncryptedGroupMessage,
+} from '../../services/messageService'
+import { decryptPrivateKey } from '../../utils/privateKeyEncryption'
 import './Chats.css'
 
-const demoGroups = [
-  {
-    id: 'grp-finanzas',
-    name: 'Finanzas',
-    description: 'Equipo de revisión interna',
-    members: ['Ana', 'Carlos', 'María', 'Luis'],
-    lastMessage: 'Revisemos el documento antes de enviarlo.',
-    unread: 3,
-  },
-  {
-    id: 'grp-proyecto',
-    name: 'Proyecto Cifrados',
-    description: 'Mensajería segura grupal',
-    members: ['Gabriel', 'Sofía', 'Diego'],
-    lastMessage: 'Ya quedó listo el módulo de cifrado híbrido.',
-    unread: 1,
-  },
-  {
-    id: 'grp-general',
-    name: 'General',
-    description: 'Canal principal del equipo',
-    members: ['Equipo completo'],
-    lastMessage: 'Recordatorio: hacer pruebas antes del commit.',
-    unread: 0,
-  },
-]
-
-const demoMessages = {
-  'grp-finanzas': [
-    {
-      id: 'msg-1',
-      sender: 'Ana',
-      content: 'Hola equipo, ya subí el documento para revisión.',
-      time: '09:20',
-      own: false,
-    },
-    {
-      id: 'msg-2',
-      sender: 'Tú',
-      content: 'Perfecto, lo reviso y les aviso si encuentro algo.',
-      time: '09:24',
-      own: true,
-    },
-    {
-      id: 'msg-3',
-      sender: 'Carlos',
-      content: 'También validaré que los archivos estén completos.',
-      time: '09:27',
-      own: false,
-    },
-  ],
-  'grp-proyecto': [
-    {
-      id: 'msg-4',
-      sender: 'Sofía',
-      content: 'Ya está lista la parte del cifrado híbrido para integrar.',
-      time: '10:10',
-      own: false,
-    },
-    {
-      id: 'msg-5',
-      sender: 'Tú',
-      content: 'Genial, yo estoy armando la pantalla de chats.',
-      time: '10:14',
-      own: true,
-    },
-    {
-      id: 'msg-6',
-      sender: 'Diego',
-      content: 'Después conectamos el envío real con el endpoint de mensajes.',
-      time: '10:18',
-      own: false,
-    },
-  ],
-  'grp-general': [
-    {
-      id: 'msg-7',
-      sender: 'Sistema',
-      content: 'Bienvenido al canal general de Blu.',
-      time: '08:00',
-      own: false,
-    },
-  ],
+const emptyGroupForm = {
+  name: '',
+  member_ids: '',
 }
 
+const emptyPrivateKeyForm = {
+  encrypted_key_json: '',
+  password: '',
+}
+
+const cryptoFlowSteps = [
+  'El usuario escribe un mensaje.',
+  'El cliente genera una clave AES-256 efimera.',
+  'El cliente genera un nonce unico.',
+  'El mensaje se cifra con AES-256-GCM.',
+  'La clave AES se cifra con RSA-OAEP usando la llave publica de cada miembro.',
+  'Supabase guarda ciphertext, nonce, tag y timestamp.',
+  'Supabase guarda una encrypted_key por cada miembro del canal.',
+]
+
 function Chats() {
-  const [groups, setGroups] = useState(demoGroups)
-  const [selectedGroupId, setSelectedGroupId] = useState(demoGroups[0].id)
-  const [messagesByGroup, setMessagesByGroup] = useState(demoMessages)
+  const [groups, setGroups] = useState([])
+  const [selectedGroupId, setSelectedGroupId] = useState('')
+  const [messages, setMessages] = useState([])
   const [messageText, setMessageText] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
+  const [groupForm, setGroupForm] = useState(emptyGroupForm)
+  const [privateKeyForm, setPrivateKeyForm] = useState(emptyPrivateKeyForm)
+  const [privateKeyPem, setPrivateKeyPem] = useState('')
+  const [selectedMessage, setSelectedMessage] = useState(null)
+  const [lastEncryptedPayload, setLastEncryptedPayload] = useState(null)
+  const [status, setStatus] = useState({ type: 'idle', message: '' })
+  const [loading, setLoading] = useState(false)
+
+  const currentUser = useMemo(() => {
+    const stored = localStorage.getItem('blu_user')
+    return stored ? JSON.parse(stored) : null
+  }, [])
 
   const selectedGroup = useMemo(() => {
     return groups.find((group) => group.id === selectedGroupId)
   }, [groups, selectedGroupId])
 
-  const currentMessages = messagesByGroup[selectedGroupId] || []
+  const currentMessages = useMemo(() => {
+    return messages
+      .filter((message) => message.channel_id === selectedGroupId || message.group_id === selectedGroupId)
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+  }, [messages, selectedGroupId])
 
   const filteredGroups = groups.filter((group) =>
     group.name.toLowerCase().includes(searchTerm.toLowerCase()),
   )
 
-  function handleSelectGroup(groupId) {
-    setSelectedGroupId(groupId)
-
-    setGroups((currentGroups) =>
-      currentGroups.map((group) =>
-        group.id === groupId ? { ...group, unread: 0 } : group,
-      ),
-    )
+  function showStatus(type, message) {
+    setStatus({ type, message })
   }
 
-  function handleSendMessage(event) {
+  const refreshGroups = useCallback(async () => {
+    setLoading(true)
+    showStatus('loading', 'Cargando canales...')
+
+    try {
+      const loadedGroups = await loadUserGroups()
+      setGroups(loadedGroups)
+      setSelectedGroupId((currentGroupId) => currentGroupId || loadedGroups[0]?.id || '')
+      showStatus('success', 'Canales cargados.')
+    } catch (error) {
+      showStatus('error', error.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const refreshMessages = useCallback(async () => {
+    if (!currentUser?.id) return
+
+    setLoading(true)
+    showStatus('loading', 'Cargando mensajes cifrados...')
+
+    try {
+      const encryptedMessages = await loadUserMessages(currentUser.id)
+      const decryptedMessages = await decryptMessagesWithPrivateKey(
+        encryptedMessages,
+        privateKeyPem,
+      )
+
+      setMessages(decryptedMessages)
+      showStatus('success', 'Mensajes actualizados.')
+    } catch (error) {
+      showStatus('error', error.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [currentUser?.id, privateKeyPem])
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      refreshGroups()
+    })
+  }, [refreshGroups])
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      refreshMessages()
+    })
+  }, [refreshMessages])
+
+  function handleSelectGroup(groupId) {
+    setSelectedGroupId(groupId)
+    setSelectedMessage(null)
+  }
+
+  function handleGroupFormChange(event) {
+    const { name, value } = event.target
+    setGroupForm((current) => ({ ...current, [name]: value }))
+  }
+
+  function handlePrivateKeyChange(event) {
+    const { name, value } = event.target
+    setPrivateKeyForm((current) => ({ ...current, [name]: value }))
+  }
+
+  async function handleCreateGroup(event) {
+    event.preventDefault()
+    setLoading(true)
+    showStatus('loading', 'Creando canal...')
+
+    try {
+      const newGroup = await createGroup(groupForm)
+      setGroups((currentGroups) => [newGroup, ...currentGroups])
+      setSelectedGroupId(newGroup.id)
+      setGroupForm(emptyGroupForm)
+      showStatus('success', 'Canal creado. Ya puedes enviar mensajes cifrados.')
+    } catch (error) {
+      showStatus('error', error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleUnlockPrivateKey(event) {
+    event.preventDefault()
+    setLoading(true)
+    showStatus('loading', 'Desbloqueando llave privada...')
+
+    try {
+      const encryptedPrivateKey = JSON.parse(privateKeyForm.encrypted_key_json)
+      const decryptedPrivateKeyPem = await decryptPrivateKey(
+        encryptedPrivateKey,
+        privateKeyForm.password,
+      )
+
+      setPrivateKeyPem(decryptedPrivateKeyPem)
+      setPrivateKeyForm((current) => ({ ...current, password: '' }))
+      showStatus('success', 'Llave privada lista para descifrar mensajes.')
+    } catch {
+      showStatus('error', 'No se pudo desbloquear la llave privada cifrada.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleSendMessage(event) {
     event.preventDefault()
 
     const cleanMessage = messageText.trim()
 
-    if (!cleanMessage) return
+    if (!cleanMessage || !selectedGroupId) return
 
-    const newMessage = {
-      id: crypto.randomUUID(),
-      sender: 'Tú',
-      content: cleanMessage,
-      time: new Date().toLocaleTimeString('es-GT', {
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-      own: true,
+    setLoading(true)
+    showStatus('loading', 'Cifrando mensaje en el cliente...')
+
+    try {
+      const sentMessage = await sendEncryptedGroupMessage({
+        group_id: selectedGroupId,
+        content: cleanMessage,
+      })
+      const [displayMessage] = await decryptMessagesWithPrivateKey(
+        [sentMessage],
+        privateKeyPem,
+      )
+
+      setMessages((currentMessages) => [displayMessage, ...currentMessages])
+      setSelectedMessage(displayMessage)
+      setLastEncryptedPayload(sentMessage)
+      setMessageText('')
+      showStatus('success', 'Mensaje cifrado y guardado en Supabase.')
+    } catch (error) {
+      showStatus('error', error.message)
+    } finally {
+      setLoading(false)
     }
-
-    setMessagesByGroup((currentMessagesByGroup) => ({
-      ...currentMessagesByGroup,
-      [selectedGroupId]: [
-        ...(currentMessagesByGroup[selectedGroupId] || []),
-        newMessage,
-      ],
-    }))
-
-    setGroups((currentGroups) =>
-      currentGroups.map((group) =>
-        group.id === selectedGroupId
-          ? { ...group, lastMessage: cleanMessage }
-          : group,
-      ),
-    )
-
-    setMessageText('')
   }
 
   return (
@@ -197,15 +250,32 @@ function Chats() {
                   </div>
 
                   <span>{group.lastMessage}</span>
+                  <span>{group.description}</span>
                 </div>
               </button>
             ))
           )}
         </section>
 
-        <button className="new-group-button">
-          + Nuevo grupo
-        </button>
+        <form className="new-group-form" onSubmit={handleCreateGroup}>
+          <input
+            name="name"
+            value={groupForm.name}
+            onChange={handleGroupFormChange}
+            placeholder="Nombre del canal"
+            required
+          />
+          <textarea
+            name="member_ids"
+            value={groupForm.member_ids}
+            onChange={handleGroupFormChange}
+            placeholder="UUIDs de miembros separados por coma"
+            required
+          />
+          <button className="new-group-button" disabled={loading}>
+            Crear canal
+          </button>
+        </form>
       </aside>
 
       <section className="chat-main">
@@ -218,24 +288,34 @@ function Chats() {
 
           <div className="chat-status">
             <span className="status-dot"></span>
-            Grupo privado
+            {privateKeyPem ? 'Descifrado activo' : 'Grupo privado'}
           </div>
         </header>
 
-        <section className="messages-area">
-          {currentMessages.map((message) => (
-            <article
-              key={message.id}
-              className={`message-bubble ${message.own ? 'own' : ''}`}
-            >
-              <div className="message-meta">
-                <strong>{message.sender}</strong>
-                <span>{message.time}</span>
-              </div>
+        {status.message && (
+          <p className={`chat-status-message ${status.type}`}>{status.message}</p>
+        )}
 
-              <p>{message.content}</p>
-            </article>
-          ))}
+        <section className="messages-area">
+          {currentMessages.length === 0 ? (
+            <p className="empty-chat-text">Selecciona un canal o envia el primer mensaje cifrado.</p>
+          ) : (
+            currentMessages.map((message) => (
+              <article
+                key={message.id}
+                className={`message-bubble ${message.sender_id === currentUser?.id ? 'own' : ''}`}
+                onClick={() => setSelectedMessage(message)}
+              >
+                <div className="message-meta">
+                  <strong>{message.sender_id === currentUser?.id ? 'Tu' : 'Miembro'}</strong>
+                  <span>{formatMessageTime(message.created_at)}</span>
+                </div>
+
+                <p>{message.plaintext || message.decrypt_error || 'Mensaje cifrado pendiente de descifrar'}</p>
+                <small>{message.ciphertext_base64 ? 'AES-256-GCM guardado' : ''}</small>
+              </article>
+            ))
+          )}
         </section>
 
         <form className="message-composer" onSubmit={handleSendMessage}>
@@ -246,8 +326,8 @@ function Chats() {
             onChange={(event) => setMessageText(event.target.value)}
           />
 
-          <button type="submit">
-            Enviar
+          <button type="submit" disabled={loading || !selectedGroupId}>
+            {loading ? 'Procesando' : 'Enviar'}
           </button>
         </form>
       </section>
@@ -262,14 +342,36 @@ function Chats() {
           <p>{selectedGroup?.description}</p>
         </div>
 
+        <form className="details-card key-card" onSubmit={handleUnlockPrivateKey}>
+          <p className="section-label">Llave privada</p>
+          <textarea
+            name="encrypted_key_json"
+            value={privateKeyForm.encrypted_key_json}
+            onChange={handlePrivateKeyChange}
+            placeholder='Pega aqui tu JSON de llave privada cifrada'
+            required
+          />
+          <input
+            name="password"
+            type="password"
+            value={privateKeyForm.password}
+            onChange={handlePrivateKeyChange}
+            placeholder="Contrasena"
+            required
+          />
+          <button disabled={loading}>
+            {privateKeyPem ? 'Llave desbloqueada' : 'Desbloquear'}
+          </button>
+        </form>
+
         <div className="details-card">
           <p className="section-label">Miembros</p>
 
           <div className="members-list">
-            {selectedGroup?.members.map((member) => (
-              <div className="member-item" key={member}>
-                <span>{member.charAt(0).toUpperCase()}</span>
-                <strong>{member}</strong>
+            {selectedGroup?.members?.map((member) => (
+              <div className="member-item" key={member.user_id || member}>
+                <span>{(member.name || member).charAt(0).toUpperCase()}</span>
+                <strong>{member.name || member}</strong>
               </div>
             ))}
           </div>
@@ -279,13 +381,39 @@ function Chats() {
           <p className="section-label">Seguridad</p>
 
           <div className="security-list">
-            <span>Grupo privado</span>
-            <span>Mensajes preparados para cifrado</span>
-            <span>Integración futura con API REST</span>
+            {cryptoFlowSteps.map((step, index) => (
+              <span key={step}>{index + 1}. {step}</span>
+            ))}
           </div>
+        </div>
+
+        <div className="details-card">
+          <p className="section-label">Objeto almacenado</p>
+          <PreviewValue label="Ciphertext" value={selectedMessage?.ciphertext_base64 || lastEncryptedPayload?.ciphertext_base64} />
+          <PreviewValue label="Nonce" value={selectedMessage?.nonce_base64 || lastEncryptedPayload?.nonce_base64} />
+          <PreviewValue label="Auth tag" value={selectedMessage?.auth_tag_base64 || lastEncryptedPayload?.auth_tag_base64} />
+          <PreviewValue label="Encrypted keys" value={(selectedMessage?.encrypted_keys || lastEncryptedPayload?.encrypted_keys)?.length} />
         </div>
       </aside>
     </main>
+  )
+}
+
+function formatMessageTime(timestamp) {
+  if (!timestamp) return 'Ahora'
+
+  return new Date(timestamp).toLocaleTimeString('es-GT', {
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function PreviewValue({ label, value }) {
+  return (
+    <div className="crypto-preview-row">
+      <span>{label}</span>
+      <code>{value || 'Pendiente'}</code>
+    </div>
   )
 }
 

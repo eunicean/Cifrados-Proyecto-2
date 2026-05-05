@@ -143,6 +143,11 @@
   white-space: nowrap;
 }
 
+.group-info span + span {
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
 .unread-badge {
   min-width: 24px;
   height: 24px;
@@ -153,6 +158,32 @@
   color: white;
   font-size: 0.78rem;
   font-weight: 900;
+}
+
+.new-group-form {
+  display: grid;
+  gap: 10px;
+}
+
+.new-group-form input,
+.new-group-form textarea {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
+  padding: 12px;
+  outline: none;
+  resize: vertical;
+}
+
+.new-group-form textarea {
+  min-height: 78px;
+}
+
+.new-group-form input::placeholder,
+.new-group-form textarea::placeholder {
+  color: #94a3b8;
 }
 
 .new-group-button {
@@ -236,6 +267,13 @@
   overflow-y: auto;
 }
 
+.empty-chat-text {
+  margin: auto;
+  color: #64748b;
+  text-align: center;
+  font-weight: 800;
+}
+
 .message-bubble {
   width: min(74%, 680px);
   padding: 14px 16px;
@@ -280,6 +318,18 @@
   line-height: 1.5;
 }
 
+.message-bubble small {
+  display: block;
+  margin-top: 8px;
+  color: #64748b;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.message-bubble.own small {
+  color: rgba(255, 255, 255, 0.72);
+}
+
 .message-composer {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -311,6 +361,36 @@
   background: #2457d6;
   color: white;
   font-weight: 900;
+}
+
+.message-composer button:disabled,
+.new-group-button:disabled,
+.key-card button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.chat-status-message {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-size: 0.9rem;
+  font-weight: 850;
+}
+
+.chat-status-message.success {
+  background: #eaf8ef;
+  color: #166534;
+}
+
+.chat-status-message.error {
+  background: #feecec;
+  color: #b42318;
+}
+
+.chat-status-message.loading {
+  background: #eef4ff;
+  color: #2457d6;
 }
 
 .chat-details {
@@ -353,6 +433,36 @@
   line-height: 1.5;
 }
 
+.key-card {
+  display: grid;
+  gap: 10px;
+}
+
+.key-card textarea,
+.key-card input {
+  width: 100%;
+  border: 1px solid #dbe3ef;
+  border-radius: 14px;
+  background: #f8fafc;
+  color: #102033;
+  padding: 12px;
+  outline: none;
+}
+
+.key-card textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.key-card button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 14px;
+  background: #2457d6;
+  color: white;
+  font-weight: 900;
+}
+
 .members-list,
 .security-list {
   display: grid;
@@ -382,6 +492,32 @@
   background: #f8fafc;
   color: #334155;
   font-weight: 750;
+}
+
+.crypto-preview-row {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid #e8eef7;
+}
+
+.crypto-preview-row:last-child {
+  border-bottom: 0;
+}
+
+.crypto-preview-row span {
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.crypto-preview-row code {
+  overflow: hidden;
+  color: #102033;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .empty-text {

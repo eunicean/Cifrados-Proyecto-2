@@ -246,7 +246,9 @@ function Login() {
 
   useEffect(() => {
     if (activeView === 'inbox' && currentUser?.id) {
-      loadMessages()
+      queueMicrotask(() => {
+        loadMessages()
+      })
     }
   }, [activeView, currentUser?.id, loadMessages])
 
