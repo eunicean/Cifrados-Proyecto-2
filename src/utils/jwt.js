@@ -81,3 +81,42 @@ export function decodeJwtPayload(token) {
 
   return JSON.parse(Buffer.from(paddedPayload, 'base64').toString('utf8'))
 }
+
+export function verifyJwt(token, secret) {
+  if (!secret) {
+    throw new Error('Falta la llave secreta para verificar el JWT.')
+  }
+
+  if (typeof token !== 'string' || token.split('.').length !== 3) {
+    throw new Error('JWT invalido.')
+  }
+
+  const [encodedHeader, encodedPayload, signature] = token.split('.')
+  const unsignedToken = `${encodedHeader}.${encodedPayload}`
+  const expectedSignature = crypto
+    .createHmac('sha256', secret)
+    .update(unsignedToken)
+    .digest('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '')
+
+  const provided = Buffer.from(signature)
+  const expected = Buffer.from(expectedSignature)
+
+  if (
+    provided.length !== expected.length ||
+    !crypto.timingSafeEqual(provided, expected)
+  ) {
+    throw new Error('JWT invalido.')
+  }
+
+  const payload = decodeJwtPayload(token)
+  const now = Math.floor(Date.now() / 1000)
+
+  if (payload.exp && payload.exp <= now) {
+    throw new Error('JWT expirado.')
+  }
+
+  return payload
+}
