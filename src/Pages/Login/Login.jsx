@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { registerWithKeyPair } from '../../services/authService'
+import { sendEncryptedGroupMessage } from '../../services/messageService'
 import './Login.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
@@ -105,18 +107,14 @@ function Login() {
   async function handleRegister(event) {
     event.preventDefault()
     setLoading(true)
-    showStatus('loading', 'Creando usuario...')
+    showStatus('loading', 'Generando llaves RSA y creando usuario...')
 
     try {
-      const data = await apiRequest('/auth/register', {
-        method: 'POST',
-        body: JSON.stringify(registerForm),
-      })
+      await registerWithKeyPair(registerForm)
 
       setRegisterForm(emptyRegisterForm)
       setAuthMode('login')
-      showStatus('success', 'Usuario registrado correctamente. Ahora puedes iniciar sesión.')
-      console.log('Registro:', data)
+      showStatus('success', 'Usuario registrado. Guarda el archivo de llave privada que se descargó.')
     } catch (error) {
       showStatus('error', error.message)
     } finally {
@@ -204,22 +202,17 @@ function Login() {
   async function handleSendGroupMessage(event) {
     event.preventDefault()
     setLoading(true)
-    showStatus('loading', 'Enviando mensaje al grupo...')
+    showStatus('loading', 'Cifrando y enviando mensaje al grupo...')
 
     try {
-      const data = await apiRequest('/messages', {
-        method: 'POST',
-        body: JSON.stringify({
-          group_id: groupMessageForm.group_id,
-          plaintext: groupMessageForm.content,
-        }),
+      const sentMessage = await sendEncryptedGroupMessage({
+        group_id: groupMessageForm.group_id,
+        content: groupMessageForm.content,
       })
-
-      const sentMessage = data.message || data
 
       setGroupMessageForm(emptyGroupMessageForm)
       setSelectedMessage(sentMessage)
-      showStatus('success', 'Mensaje enviado correctamente al chat grupal.')
+      showStatus('success', 'Mensaje cifrado y enviado al chat grupal.')
     } catch (error) {
       showStatus('error', error.message)
     } finally {
