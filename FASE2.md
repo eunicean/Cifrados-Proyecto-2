@@ -6,7 +6,7 @@ Implementación de cifrado híbrido (AES-256-GCM + RSA-OAEP) para mensajería gr
 
 ## 1. Cifrado AES-256-GCM con nonce único por mensaje
 
-Archivo: `src/utils/crypto/aesGcm.js`
+Archivo: [src/utils/crypto/aesGcm.js](src\utils\crypto\aesGcm.js)
 
 Cada mensaje genera una clave AES-256 efímera y un nonce aleatorio de 12 bytes. El tag de autenticación GCM (16 bytes) es separado del ciphertext para almacenarse de forma explícita.
 
@@ -59,7 +59,7 @@ Objeto almacenado resultante:
 
 ## 2. Cifrado híbrido — clave AES cifrada con RSA-OAEP
 
-Archivo: `src/utils/crypto/rsaOaep.js`
+Archivo: [src/utils/crypto/rsaOaep.js](src/utils/crypto/rsaOaep.js)
 
 La clave AES efímera se cifra con la llave pública RSA-2048 del destinatario usando RSA-OAEP + SHA-256. Solo quien tenga la llave privada correspondiente puede recuperarla.
 
@@ -103,7 +103,7 @@ export async function decryptAesKeyWithPrivateKey(encryptedKey, privateKeyPem) {
 
 ## 3. Descifrado funcional end-to-end
 
-Archivo: `src/utils/crypto/hybridMessageCrypto.js`
+Archivo: [src/utils/crypto/hybridMessageCrypto.js](src/utils/crypto/hybridMessageCrypto.js)
 
 El destinatario recupera la clave AES descifrando su `encrypted_key_base64` con su llave privada RSA y luego descifra el mensaje. `decryptStoredMessage` intenta cada clave cifrada disponible hasta encontrar la propia.
 
@@ -160,7 +160,7 @@ const plaintext = await decryptStoredMessage(messages[0], privateKeyPem)
 
 ## 4. Mensajería grupal con clave compartida
 
-Archivo: `src/utils/crypto/hybridMessageCrypto.js`
+Archivo: [src/utils/crypto/hybridMessageCrypto.js](src/utils/crypto/hybridMessageCrypto.js)
 
 Para chats grupales, el ciphertext es único (un solo cifrado AES-256-GCM), pero la clave AES se cifra individualmente con la llave pública RSA de cada miembro. Cada miembro recibe su propio `encrypted_key_base64`.
 
@@ -212,7 +212,7 @@ Resultado en `message_keys` (una fila por miembro):
 
 ## 5. POST y GET de mensajes via API REST
 
-Archivo: `app.js` (Express)
+Archivo: [app.js (Express)](app.js)
 
 ### POST /messages
 
@@ -305,3 +305,10 @@ Ejemplo de respuesta:
   ]
 }
 ```
+---
+## 6. Pruebas unitarias
+- [AES GCM](src\tests\aesGcm.test.js)
+- [Base64](src\tests\base64.test.js)
+- [Encrypt Message](src\tests\messageCrypto.test.js)
+
+![phase 2 tests](src\assets\phase2tests.jpeg)
