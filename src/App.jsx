@@ -316,7 +316,6 @@ function App() {
     return (
       <main className="auth-layout">
         <section className="hero-panel">
-          <div className="brand-badge">VC</div>
           <div>
             <p className="eyebrow">VaultChain</p>
             <h1>Mensajería segura con cifrado híbrido</h1>
@@ -437,7 +436,6 @@ function App() {
       <aside className="sidebar">
         <div>
           <div className="brand-row">
-            <div className="brand-badge small">VC</div>
             <div>
               <strong>VaultChain</strong>
               <span>Secure Chat</span>
