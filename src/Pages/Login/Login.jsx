@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { registerWithKeyPair } from '../../services/authService'
-import { sendEncryptedGroupMessage } from '../../services/messageService'
+import {
+  decryptMessagesWithPrivateKey,
+  loadUserGroups,
+  sendEncryptedGroupMessage,
+} from '../../services/messageService'
+import { decryptPrivateKey } from '../../utils/privateKeyEncryption'
 import './Login.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
@@ -68,6 +73,10 @@ function Login() {
 
   const [messages, setMessages] = useState([])
   const [groups, setGroups] = useState([])
+  const [selectedGroupId, setSelectedGroupId] = useState('')
+  const [privateKeyPem, setPrivateKeyPem] = useState('')
+  const [privateKeyForm, setPrivateKeyForm] = useState({ encrypted_key_json: '', password: '' })
+  const [decryptedMessages, setDecryptedMessages] = useState([])
   const [selectedMessage, setSelectedMessage] = useState(null)
   const [status, setStatus] = useState({ type: 'idle', message: '' })
   const [loading, setLoading] = useState(false)
@@ -241,9 +250,55 @@ function Login() {
     if (activeView === 'inbox' && currentUser?.id) {
       queueMicrotask(() => {
         loadMessages()
+        if (groups.length === 0) {
+          loadUserGroups().then(setGroups).catch(() => {})
+        }
       })
     }
   }, [activeView, currentUser?.id, loadMessages])
+
+  useEffect(() => {
+    const filtered = selectedGroupId
+      ? messages.filter(m => m.channel_id === selectedGroupId || m.group_id === selectedGroupId)
+      : messages
+
+    if (!privateKeyPem) {
+      setDecryptedMessages(filtered)
+      return
+    }
+
+    decryptMessagesWithPrivateKey(filtered, privateKeyPem)
+      .then(setDecryptedMessages)
+      .catch(() => setDecryptedMessages(filtered))
+  }, [messages, selectedGroupId, privateKeyPem])
+
+  async function handleUnlockPrivateKey(event) {
+    event.preventDefault()
+    setLoading(true)
+    showStatus('loading', 'Desbloqueando llave privada...')
+
+    let encryptedKey
+    try {
+      encryptedKey = JSON.parse(privateKeyForm.encrypted_key_json)
+    } catch {
+      showStatus('error', 'El JSON de la llave privada no es válido. Verifica que pegaste el archivo completo.')
+      setLoading(false)
+      return
+    }
+
+    try {
+      const pem = await decryptPrivateKey(encryptedKey, privateKeyForm.password)
+      console.log('[unlock] Llave privada desbloqueada. Encabezado:', pem.split('\n')[0])
+      setPrivateKeyPem(pem)
+      setPrivateKeyForm(f => ({ ...f, password: '' }))
+      showStatus('success', 'Llave privada lista. Los mensajes se descifrarán automáticamente.')
+    } catch (err) {
+      console.error('[unlock] Error al descifrar la llave privada:', err.message)
+      showStatus('error', 'Contraseña incorrecta o archivo de llave inválido.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   if (!isLoggedIn) {
     return (
@@ -552,26 +607,85 @@ function Login() {
                 </button>
               </div>
 
+              <select
+                value={selectedGroupId}
+                onChange={e => { setSelectedGroupId(e.target.value); setSelectedMessage(null) }}
+                style={{ marginBottom: '0.75rem', width: '100%', padding: '0.4rem' }}
+              >
+                <option value="">Todos los grupos</option>
+                {groups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name || g.id}</option>
+                ))}
+              </select>
+
               <div className="message-list">
-                {messages.length === 0 ? (
-                  <p className="muted">No hay mensajes cargados todavía.</p>
+                {decryptedMessages.length === 0 ? (
+                  <p className="muted">No hay mensajes en este grupo.</p>
                 ) : (
-                  messages.map((message) => (
+                  decryptedMessages.map((message) => (
                     <button
                       key={message.id}
                       className="message-item"
                       onClick={() => setSelectedMessage(message)}
                     >
-                      <strong>{message.group_id || 'Grupo desconocido'}</strong>
-                      <span>{message.created_at || 'Sin fecha'}</span>
-                      <small>Mensaje grupal</small>
+                      <strong>
+                        {groups.find(g => g.id === (message.channel_id || message.group_id))?.name
+                          || message.group_id
+                          || 'Grupo desconocido'}
+                      </strong>
+                      <span>
+                        {message.plaintext
+                          ? message.plaintext.slice(0, 60)
+                          : message.decrypt_error || 'Cifrado — desbloquea tu llave privada'}
+                      </span>
+                      <small>{message.created_at ? new Date(message.created_at).toLocaleString('es-GT') : ''}</small>
                     </button>
                   ))
                 )}
               </div>
             </div>
 
-            <EncryptedPreview message={selectedMessage} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <form className="panel form-stack" onSubmit={handleUnlockPrivateKey}>
+                <div>
+                  <p className="eyebrow">Descifrado</p>
+                  <h2>{privateKeyPem ? 'Llave activa' : 'Desbloquear llave privada'}</h2>
+                </div>
+
+                {privateKeyPem ? (
+                  <p className="muted" style={{ color: 'green' }}>
+                    Llave privada cargada. Los mensajes se descifran automáticamente.
+                  </p>
+                ) : (
+                  <>
+                    <label>
+                      JSON de llave privada cifrada
+                      <textarea
+                        value={privateKeyForm.encrypted_key_json}
+                        onChange={e => setPrivateKeyForm(f => ({ ...f, encrypted_key_json: e.target.value }))}
+                        placeholder='Pega aquí el contenido de tu archivo _private_key.json'
+                        rows={4}
+                        required
+                      />
+                    </label>
+                    <label>
+                      Contraseña
+                      <input
+                        type="password"
+                        value={privateKeyForm.password}
+                        onChange={e => setPrivateKeyForm(f => ({ ...f, password: e.target.value }))}
+                        required
+                      />
+                    </label>
+                    <button className="primary-button" disabled={loading}>
+                      Desbloquear
+                    </button>
+                  </>
+                )}
+              </form>
+
+              <EncryptedPreview message={selectedMessage} />
+            </div>
           </section>
         )}
       </section>

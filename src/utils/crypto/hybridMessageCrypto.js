@@ -70,9 +70,10 @@ export async function decryptStoredMessage(encryptedMessage, recipientPrivateKey
 
   let lastError = null
 
-  for (const messageKey of encryptedKeys) {
+  for (let i = 0; i < encryptedKeys.length; i++) {
+    const messageKey = encryptedKeys[i]
     try {
-      return await decryptMessageForRecipient(
+      const plaintext = await decryptMessageForRecipient(
         {
           ciphertext_base64:
             encryptedMessage.ciphertext_base64 || encryptedMessage.ciphertext,
@@ -85,6 +86,7 @@ export async function decryptStoredMessage(encryptedMessage, recipientPrivateKey
         },
         recipientPrivateKeyPem,
       )
+      return plaintext
     } catch (error) {
       lastError = error
     }
