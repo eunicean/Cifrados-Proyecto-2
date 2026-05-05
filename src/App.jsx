@@ -1,6 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
-import { getUserPublicKey } from './utils/api'
-import { encryptMessageForRecipient } from './utils/messageCrypto'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
@@ -16,11 +14,6 @@ const emptyLoginForm = {
   password: '',
 }
 
-const emptyMessageForm = {
-  recipient_id: '',
-  content: '',
-}
-
 const emptyGroupForm = {
   name: '',
   member_ids: '',
@@ -32,7 +25,7 @@ const emptyGroupMessageForm = {
 }
 
 async function apiRequest(endpoint, options = {}) {
-  const token = localStorage.getItem('vaultchain_token')
+  const token = localStorage.getItem('blu_token')
 
   const response = await fetch(`${API_URL}${endpoint}`, {
     ...options,
@@ -59,16 +52,15 @@ async function apiRequest(endpoint, options = {}) {
 }
 
 function App() {
-  const [activeView, setActiveView] = useState('individual')
+  const [activeView, setActiveView] = useState('groups')
   const [authMode, setAuthMode] = useState('login')
   const [registerForm, setRegisterForm] = useState(emptyRegisterForm)
   const [loginForm, setLoginForm] = useState(emptyLoginForm)
-  const [messageForm, setMessageForm] = useState(emptyMessageForm)
   const [groupForm, setGroupForm] = useState(emptyGroupForm)
   const [groupMessageForm, setGroupMessageForm] = useState(emptyGroupMessageForm)
 
   const [currentUser, setCurrentUser] = useState(() => {
-    const stored = localStorage.getItem('vaultchain_user')
+    const stored = localStorage.getItem('blu_user')
     return stored ? JSON.parse(stored) : null
   })
 
@@ -81,10 +73,9 @@ function App() {
   const isLoggedIn = Boolean(currentUser)
 
   const dashboardTitle = useMemo(() => {
-    if (activeView === 'individual') return 'Mensaje individual cifrado'
-    if (activeView === 'groups') return 'Mensajería grupal'
-    if (activeView === 'inbox') return 'Bandeja cifrada'
-    return 'VaultChain'
+    if (activeView === 'groups') return 'Chats grupales'
+    if (activeView === 'inbox') return 'Mensajes'
+    return 'Blu'
   }, [activeView])
 
   function showStatus(type, message) {
@@ -101,11 +92,6 @@ function App() {
     setLoginForm((current) => ({ ...current, [name]: value }))
   }
 
-  function handleMessageChange(event) {
-    const { name, value } = event.target
-    setMessageForm((current) => ({ ...current, [name]: value }))
-  }
-
   function handleGroupChange(event) {
     const { name, value } = event.target
     setGroupForm((current) => ({ ...current, [name]: value }))
@@ -119,7 +105,7 @@ function App() {
   async function handleRegister(event) {
     event.preventDefault()
     setLoading(true)
-    showStatus('loading', 'Creando usuario y preparando identidad criptográfica...')
+    showStatus('loading', 'Creando usuario...')
 
     try {
       const data = await apiRequest('/auth/register', {
@@ -160,8 +146,8 @@ function App() {
         throw new Error('El backend no devolvió un JWT válido.')
       }
 
-      localStorage.setItem('vaultchain_token', token)
-      localStorage.setItem('vaultchain_user', JSON.stringify(user))
+      localStorage.setItem('blu_token', token)
+      localStorage.setItem('blu_user', JSON.stringify(user))
 
       setCurrentUser(user)
       setLoginForm(emptyLoginForm)
@@ -174,8 +160,8 @@ function App() {
   }
 
   function handleLogout() {
-    localStorage.removeItem('vaultchain_token')
-    localStorage.removeItem('vaultchain_user')
+    localStorage.removeItem('blu_token')
+    localStorage.removeItem('blu_user')
     setCurrentUser(null)
     setMessages([])
     setGroups([])
@@ -183,63 +169,10 @@ function App() {
     showStatus('idle', '')
   }
 
-  async function handleSendMessage(event) {
-    event.preventDefault()
-    setLoading(true)
-    showStatus('loading', 'Obteniendo llave pública del destinatario...')
-
-    try {
-      if (!currentUser?.id) {
-        throw new Error('No hay usuario autenticado.')
-      }
-
-      const { public_key_pem: recipientPublicKeyPem } = await getUserPublicKey(
-        messageForm.recipient_id,
-      )
-
-      showStatus('loading', 'Cifrando mensaje con AES-256-GCM y RSA-OAEP...')
-
-      const encryptedMessage = await encryptMessageForRecipient(
-        messageForm.content,
-        recipientPublicKeyPem,
-      )
-
-      const payload = {
-        sender_id: currentUser.id,
-        recipient_id: messageForm.recipient_id,
-        group_id: null,
-        ciphertext: encryptedMessage.ciphertext,
-        encrypted_key: encryptedMessage.encrypted_key,
-        iv: encryptedMessage.iv,
-        nonce: encryptedMessage.iv,
-        auth_tag: null,
-        timestamp: encryptedMessage.timestamp,
-        created_at: encryptedMessage.timestamp,
-      }
-
-      const data = await apiRequest('/messages', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      })
-
-      setMessageForm(emptyMessageForm)
-      setSelectedMessage(data.message || data || payload)
-
-      showStatus(
-        'success',
-        'Mensaje cifrado y enviado correctamente. El texto plano no fue enviado al servidor.',
-      )
-    } catch (error) {
-      showStatus('error', error.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   async function handleCreateGroup(event) {
     event.preventDefault()
     setLoading(true)
-    showStatus('loading', 'Creando grupo seguro...')
+    showStatus('loading', 'Creando chat grupal...')
 
     try {
       const memberIds = groupForm.member_ids
@@ -255,9 +188,11 @@ function App() {
         }),
       })
 
+      const newGroup = data.group || data
+
       setGroupForm(emptyGroupForm)
-      setGroups((current) => [data.group || data, ...current])
-      showStatus('success', 'Grupo creado correctamente.')
+      setGroups((current) => [newGroup, ...current])
+      showStatus('success', 'Chat grupal creado correctamente.')
     } catch (error) {
       showStatus('error', error.message)
     } finally {
@@ -268,7 +203,7 @@ function App() {
   async function handleSendGroupMessage(event) {
     event.preventDefault()
     setLoading(true)
-    showStatus('loading', 'Enviando mensaje grupal cifrado...')
+    showStatus('loading', 'Enviando mensaje al grupo...')
 
     try {
       const data = await apiRequest('/messages', {
@@ -279,9 +214,11 @@ function App() {
         }),
       })
 
+      const sentMessage = data.message || data
+
       setGroupMessageForm(emptyGroupMessageForm)
-      showStatus('success', 'Mensaje grupal enviado. La clave AES debe ir cifrada para cada miembro.')
-      setSelectedMessage(data.message || data)
+      setSelectedMessage(sentMessage)
+      showStatus('success', 'Mensaje enviado correctamente al chat grupal.')
     } catch (error) {
       showStatus('error', error.message)
     } finally {
@@ -289,11 +226,11 @@ function App() {
     }
   }
 
-  async function loadMessages() {
+  const loadMessages = useCallback(async () => {
     if (!currentUser?.id) return
 
     setLoading(true)
-    showStatus('loading', 'Cargando mensajes cifrados...')
+    showStatus('loading', 'Cargando mensajes...')
 
     try {
       const data = await apiRequest(`/messages/${currentUser.id}`)
@@ -304,24 +241,32 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [currentUser?.id])
 
   useEffect(() => {
     if (activeView === 'inbox' && currentUser?.id) {
       loadMessages()
     }
-  }, [activeView, currentUser?.id])
+  }, [activeView, currentUser?.id, loadMessages])
 
   if (!isLoggedIn) {
     return (
       <main className="auth-layout">
         <section className="hero-panel">
-          <div>
-            <p className="eyebrow">VaultChain</p>
-            <h1>Mensajería segura con cifrado híbrido</h1>
-            <p className="hero-text">
-              Prototipo para demostrar identidad, hashing, JWT, AES-256-GCM,
-              RSA-OAEP, mensajes grupales y API REST.
+          <div className="floating-shapes" aria-hidden="true">
+            <span className="shape shape-circle"></span>
+            <span className="shape shape-square"></span>
+            <span className="shape shape-triangle"></span>
+            <span className="shape shape-diamond"></span>
+            <span className="shape shape-ring"></span>
+            <span className="shape shape-small-circle"></span>
+          </div>
+
+          <div className="hero-content">
+            <p className="eyebrow hero-eyebrow">Blu</p>
+            <h1>Chats grupales seguros</h1>
+            <p className="hero-subtitle">
+              Una plataforma simple para comunicar equipos mediante grupos privados.
             </p>
           </div>
         </section>
@@ -380,7 +325,7 @@ function App() {
           ) : (
             <form onSubmit={handleRegister} className="form-stack">
               <div>
-                <p className="eyebrow">Identidad</p>
+                <p className="eyebrow">Cuenta</p>
                 <h2>Crear usuario</h2>
               </div>
 
@@ -436,30 +381,26 @@ function App() {
       <aside className="sidebar">
         <div>
           <div className="brand-row">
+            <div className="brand-badge small">B</div>
             <div>
-              <strong>VaultChain</strong>
-              <span>Secure Chat</span>
+              <strong>Blu</strong>
+              <span>Group Chat</span>
             </div>
           </div>
 
           <nav className="nav-menu">
-            <button
-              className={activeView === 'individual' ? 'active' : ''}
-              onClick={() => setActiveView('individual')}
-            >
-              Mensaje individual
-            </button>
             <button
               className={activeView === 'groups' ? 'active' : ''}
               onClick={() => setActiveView('groups')}
             >
               Grupos
             </button>
+
             <button
               className={activeView === 'inbox' ? 'active' : ''}
               onClick={() => setActiveView('inbox')}
             >
-              Bandeja
+              Mensajes
             </button>
           </nav>
         </div>
@@ -475,14 +416,14 @@ function App() {
       <section className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Módulo 2</p>
+            <p className="eyebrow">Panel principal</p>
             <h1>{dashboardTitle}</h1>
           </div>
 
           <div className="security-pills">
-            <span>AES-256-GCM</span>
-            <span>RSA-OAEP</span>
-            <span>JWT</span>
+            <span>Grupos privados</span>
+            <span>API REST</span>
+            <span>Sesión JWT</span>
           </div>
         </header>
 
@@ -490,58 +431,14 @@ function App() {
           <p className={`status-message ${status.type}`}>{status.message}</p>
         )}
 
-        {activeView === 'individual' && (
-          <section className="content-grid">
-            <form className="panel form-stack" onSubmit={handleSendMessage}>
-              <div>
-                <p className="eyebrow">POST /messages</p>
-                <h2>Enviar mensaje individual</h2>
-                <p className="muted">
-                  El backend debe obtener la llave pública del destinatario,
-                  cifrar el mensaje con AES-GCM y cifrar la clave AES con RSA-OAEP.
-                </p>
-              </div>
-
-              <label>
-                ID del destinatario
-                <input
-                  name="recipient_id"
-                  value={messageForm.recipient_id}
-                  onChange={handleMessageChange}
-                  placeholder="UUID del destinatario"
-                  required
-                />
-              </label>
-
-              <label>
-                Mensaje
-                <textarea
-                  name="content"
-                  value={messageForm.content}
-                  onChange={handleMessageChange}
-                  placeholder="Escribe el mensaje sensible..."
-                  required
-                />
-              </label>
-
-              <button className="primary-button" disabled={loading}>
-                {loading ? 'Cifrando...' : 'Enviar cifrado'}
-              </button>
-            </form>
-
-            <EncryptedPreview message={selectedMessage} />
-          </section>
-        )}
-
         {activeView === 'groups' && (
           <section className="content-grid">
             <form className="panel form-stack" onSubmit={handleCreateGroup}>
               <div>
-                <p className="eyebrow">POST /groups</p>
+                <p className="eyebrow">Nuevo chat</p>
                 <h2>Crear grupo</h2>
                 <p className="muted">
-                  Se usará para compartir la clave AES cifrada con la llave pública
-                  de cada miembro.
+                  Crea un espacio privado para conversar con varios miembros.
                 </p>
               </div>
 
@@ -551,7 +448,7 @@ function App() {
                   name="name"
                   value={groupForm.name}
                   onChange={handleGroupChange}
-                  placeholder="Ej. Finanzas internas"
+                  placeholder="Ej. Equipo de proyecto"
                   required
                 />
               </label>
@@ -568,14 +465,17 @@ function App() {
               </label>
 
               <button className="primary-button" disabled={loading}>
-                Crear grupo
+                {loading ? 'Creando...' : 'Crear grupo'}
               </button>
             </form>
 
             <form className="panel form-stack" onSubmit={handleSendGroupMessage}>
               <div>
                 <p className="eyebrow">Mensaje grupal</p>
-                <h2>Enviar a grupo</h2>
+                <h2>Enviar mensaje</h2>
+                <p className="muted">
+                  Escribe el ID del grupo y envía un mensaje para todos sus miembros.
+                </p>
               </div>
 
               <label>
@@ -595,15 +495,45 @@ function App() {
                   name="content"
                   value={groupMessageForm.content}
                   onChange={handleGroupMessageChange}
-                  placeholder="Mensaje para todos los miembros..."
+                  placeholder="Escribe un mensaje para el grupo..."
                   required
                 />
               </label>
 
               <button className="primary-button" disabled={loading}>
-                Enviar a grupo
+                {loading ? 'Enviando...' : 'Enviar mensaje'}
               </button>
             </form>
+
+            <section className="panel groups-panel">
+              <div className="panel-heading">
+                <div>
+                  <p className="eyebrow">Chats recientes</p>
+                  <h2>Grupos creados</h2>
+                </div>
+              </div>
+
+              <div className="group-list">
+                {groups.length === 0 ? (
+                  <p className="muted">
+                    Aún no has creado grupos en esta sesión.
+                  </p>
+                ) : (
+                  groups.map((group, index) => (
+                    <article className="group-item" key={group.id || index}>
+                      <div className="group-avatar">
+                        {(group.name || 'G').charAt(0).toUpperCase()}
+                      </div>
+
+                      <div>
+                        <strong>{group.name || 'Grupo sin nombre'}</strong>
+                        <span>{group.id || 'ID pendiente'}</span>
+                      </div>
+                    </article>
+                  ))
+                )}
+              </div>
+            </section>
           </section>
         )}
 
@@ -612,9 +542,10 @@ function App() {
             <div className="panel">
               <div className="panel-heading">
                 <div>
-                  <p className="eyebrow">GET /messages/{currentUser.id}</p>
+                  <p className="eyebrow">Mensajes</p>
                   <h2>Mensajes recibidos</h2>
                 </div>
+
                 <button className="ghost-button" onClick={loadMessages}>
                   Actualizar
                 </button>
@@ -630,11 +561,9 @@ function App() {
                       className="message-item"
                       onClick={() => setSelectedMessage(message)}
                     >
-                      <strong>{message.sender_id || 'Remitente desconocido'}</strong>
+                      <strong>{message.group_id || 'Grupo desconocido'}</strong>
                       <span>{message.created_at || 'Sin fecha'}</span>
-                      <small>
-                        {message.group_id ? 'Mensaje grupal' : 'Mensaje individual'}
-                      </small>
+                      <small>Mensaje grupal</small>
                     </button>
                   ))
                 )}
@@ -653,10 +582,10 @@ function EncryptedPreview({ message }) {
   if (!message) {
     return (
       <aside className="panel encrypted-preview empty">
-        <p className="eyebrow">Estructura cifrada</p>
+        <p className="eyebrow">Detalle del mensaje</p>
         <h2>Sin mensaje seleccionado</h2>
         <p className="muted">
-          Aquí se mostrará el ciphertext, encrypted_key, nonce, auth_tag y timestamp.
+          Aquí se mostrará la información técnica del mensaje grupal seleccionado.
         </p>
       </aside>
     )
@@ -665,9 +594,10 @@ function EncryptedPreview({ message }) {
   return (
     <aside className="panel encrypted-preview">
       <p className="eyebrow">Objeto almacenado</p>
-      <h2>Mensaje cifrado</h2>
+      <h2>Mensaje grupal</h2>
 
       <PreviewRow label="ID" value={message.id} />
+      <PreviewRow label="Grupo" value={message.group_id} />
       <PreviewRow label="Ciphertext" value={message.ciphertext} />
       <PreviewRow label="Encrypted key" value={message.encrypted_key} />
       <PreviewRow label="Nonce / IV" value={message.nonce || message.iv} />
