@@ -1,4 +1,4 @@
-﻿import { describe, expect, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 import { generateRsaKeyPairPem } from '../utils/rsaKeyPair.js'
 import {
   decryptPrivateKey,
