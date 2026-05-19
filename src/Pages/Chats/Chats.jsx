@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   createGroup,
   decryptGroupMessages,
@@ -21,6 +22,7 @@ const cryptoFlowSteps = [
 ]
 
 function Chats() {
+  const navigate = useNavigate()
   const [groups, setGroups] = useState([])
   const [selectedGroupId, setSelectedGroupId] = useState('')
   const [messages, setMessages] = useState([])
@@ -232,6 +234,14 @@ function Chats() {
             <span>Chats grupales</span>
           </div>
         </div>
+
+        <button
+          type="button"
+          className="back-dashboard-button"
+          onClick={() => navigate('/login')}
+        >
+          Volver al panel principal
+        </button>
 
         <div className="chats-search">
           <input

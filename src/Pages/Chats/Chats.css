@@ -196,10 +196,23 @@
   box-shadow: 0 14px 34px rgba(36, 87, 214, 0.34);
 }
 
+.back-dashboard-button {
+  min-height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
+  font-weight: 900;
+}
+
+.back-dashboard-button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
 .chat-main {
   min-height: 100svh;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto 1fr auto;
   padding: 28px;
 }
 
@@ -371,7 +384,7 @@
 }
 
 .chat-status-message {
-  margin: 16px 0 0;
+  margin: 14px 0 0;
   padding: 12px 14px;
   border-radius: 14px;
   font-size: 0.9rem;
@@ -523,6 +536,97 @@
 .empty-text {
   margin: 0;
   color: #94a3b8;
+}
+
+.unlock-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.58);
+  backdrop-filter: blur(10px);
+}
+
+.unlock-modal {
+  position: relative;
+  width: min(520px, 100%);
+  display: grid;
+  gap: 20px;
+  padding: 28px;
+  border: 1px solid #dbe3ef;
+  border-radius: 24px;
+  background: white;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+}
+
+.unlock-modal h2 {
+  margin: 0;
+  color: #102033;
+  font-size: 1.8rem;
+  letter-spacing: -0.04em;
+}
+
+.unlock-modal p {
+  margin: 10px 0 0;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.unlock-close-button {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 1.05rem;
+  font-weight: 950;
+}
+
+.unlock-form {
+  display: grid;
+  gap: 14px;
+}
+
+.unlock-form label {
+  display: grid;
+  gap: 8px;
+  color: #334155;
+  font-size: 0.9rem;
+  font-weight: 900;
+}
+
+.unlock-form input {
+  width: 100%;
+  border: 1px solid #dbe3ef;
+  border-radius: 14px;
+  background: #f8fafc;
+  color: #102033;
+  padding: 12px;
+  outline: none;
+}
+
+.unlock-form input:focus {
+  box-shadow: 0 0 0 4px rgba(36, 87, 214, 0.12);
+}
+
+.unlock-form button {
+  min-height: 48px;
+  border: 0;
+  border-radius: 16px;
+  background: #2457d6;
+  color: white;
+  font-weight: 950;
+}
+
+.unlock-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
 }
 
 @media (max-width: 1180px) {
