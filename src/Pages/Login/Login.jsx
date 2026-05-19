@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { registerWithKeyPair } from '../../services/authService'
 import {
   decryptMessagesWithPrivateKey,
@@ -59,6 +60,7 @@ async function apiRequest(endpoint, options = {}) {
 }
 
 function Login() {
+  const navigate = useNavigate()
   const [activeView, setActiveView] = useState('groups')
   const [authMode, setAuthMode] = useState('login')
   const [registerForm, setRegisterForm] = useState(emptyRegisterForm)
@@ -159,6 +161,7 @@ function Login() {
       setCurrentUser(user)
       setLoginForm(emptyLoginForm)
       showStatus('success', 'Sesión iniciada correctamente.')
+      navigate('/chats')
     } catch (error) {
       showStatus('error', error.message)
     } finally {
@@ -183,24 +186,22 @@ function Login() {
     showStatus('loading', 'Creando chat grupal...')
 
     try {
-      const memberIds = groupForm.member_ids
-        .split(',')
-        .map((member) => member.trim())
-        .filter(Boolean)
-
       const data = await apiRequest('/groups', {
         method: 'POST',
-        body: JSON.stringify({
-          name: groupForm.name,
-          member_ids: memberIds,
-        }),
+        body: JSON.stringify({ name: groupForm.name }),
       })
 
       const newGroup = data.group || data
+      const code = data.code
 
       setGroupForm(emptyGroupForm)
       setGroups((current) => [newGroup, ...current])
-      showStatus('success', 'Chat grupal creado correctamente.')
+      showStatus(
+        'success',
+        code
+          ? `Grupo creado. Código del grupo: ${code} — compártelo con los miembros.`
+          : 'Chat grupal creado correctamente.',
+      )
     } catch (error) {
       showStatus('error', error.message)
     } finally {
@@ -505,17 +506,6 @@ function Login() {
                   value={groupForm.name}
                   onChange={handleGroupChange}
                   placeholder="Ej. Equipo de proyecto"
-                  required
-                />
-              </label>
-
-              <label>
-                IDs de miembros separados por coma
-                <textarea
-                  name="member_ids"
-                  value={groupForm.member_ids}
-                  onChange={handleGroupChange}
-                  placeholder="uuid-1, uuid-2, uuid-3"
                   required
                 />
               </label>

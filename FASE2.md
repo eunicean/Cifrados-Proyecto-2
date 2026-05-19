@@ -311,4 +311,4 @@ Ejemplo de respuesta:
 - [Base64](src\tests\base64.test.js)
 - [Encrypt Message](src\tests\messageCrypto.test.js)
 
-![phase 2 tests](src\assets\phase2tests.jpeg)
+![phase 2 tests](.\src\assets\phase2tests.jpeg)

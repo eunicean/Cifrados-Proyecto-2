@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import crypto from 'node:crypto'
 import express from 'express'
 import { createClient } from '@supabase/supabase-js'
 import { hashPassword } from './src/auth/passwordHash.js'
@@ -49,6 +50,16 @@ app.use((req, res, next) => {
 
   next()
 })
+
+function generateGroupCode(length = 8) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const bytes = crypto.randomBytes(length)
+  return Array.from(bytes, (b) => chars[b % chars.length]).join('')
+}
+
+function hashCode(code) {
+  return crypto.createHash('sha256').update(code).digest('hex')
+}
 
 function sendError(res, error, status = 400) {
   res.status(status).json({ message: error.message || 'Ocurrio un error.' })
@@ -137,17 +148,14 @@ app.post('/auth/login', async (req, res) => {
 app.post('/groups', requireAuth, async (req, res) => {
   try {
     const name = (req.body.name || '').trim()
-    const memberIds = Array.isArray(req.body.member_ids) ? req.body.member_ids : []
-    const uniqueMemberIds = [...new Set([req.auth.sub, ...memberIds].filter(Boolean))]
-
     if (!name) throw new Error('Ingresa el nombre del grupo.')
-    if (uniqueMemberIds.length < 2) {
-      throw new Error('Agrega al menos un miembro adicional al grupo.')
-    }
+
+    const code = generateGroupCode()
+    const keyHash = hashCode(code)
 
     const { data: channel, error: channelError } = await supabase
       .from('channels')
-      .insert({ name, created_by: req.auth.sub })
+      .insert({ name, created_by: req.auth.sub, key_hash: keyHash })
       .select('id, name, created_at, created_by')
       .single()
 
@@ -155,20 +163,13 @@ app.post('/groups', requireAuth, async (req, res) => {
 
     const { error: membersError } = await supabase
       .from('channel_members')
-      .insert(
-        uniqueMemberIds.map((userId) => ({
-          channel_id: channel.id,
-          user_id: userId,
-        })),
-      )
+      .insert({ channel_id: channel.id, user_id: req.auth.sub })
 
     if (membersError) throw new Error(membersError.message)
 
     res.status(201).json({
-      group: {
-        ...channel,
-        member_ids: uniqueMemberIds,
-      },
+      group: { ...channel, member_ids: [req.auth.sub] },
+      code,
     })
   } catch (error) {
     sendError(res, error)
@@ -242,6 +243,106 @@ app.get('/groups', requireAuth, async (req, res) => {
   }
 })
 
+app.get('/groups/search', requireAuth, async (req, res) => {
+  try {
+    const name = (req.query.name || '').trim()
+    if (!name) {
+      res.json({ groups: [] })
+      return
+    }
+
+    const { data: channels, error } = await supabase
+      .from('channels')
+      .select('id, name, created_at, created_by')
+      .ilike('name', `%${name}%`)
+      .limit(20)
+
+    if (error) throw new Error(error.message)
+
+    const channelIds = channels.map((c) => c.id)
+    let memberChannelIds = new Set()
+
+    if (channelIds.length > 0) {
+      const { data: memberships } = await supabase
+        .from('channel_members')
+        .select('channel_id')
+        .eq('user_id', req.auth.sub)
+        .in('channel_id', channelIds)
+
+      memberChannelIds = new Set((memberships || []).map((m) => m.channel_id))
+    }
+
+    res.json({
+      groups: channels.map((channel) => ({
+        ...channel,
+        is_member: memberChannelIds.has(channel.id),
+      })),
+    })
+  } catch (error) {
+    sendError(res, error)
+  }
+})
+
+app.post('/groups/:id/join', requireAuth, async (req, res) => {
+  try {
+    const code = (req.body.code || '').trim()
+    if (!code) throw new Error('Ingresa el código del grupo.')
+
+    const { data: channel, error: channelError } = await supabase
+      .from('channels')
+      .select('id, name, key_hash')
+      .eq('id', req.params.id)
+      .maybeSingle()
+
+    if (channelError) throw new Error(channelError.message)
+    if (!channel) throw new Error('Grupo no encontrado.')
+
+    if (hashCode(code) !== channel.key_hash) {
+      throw new Error('Código de grupo incorrecto.')
+    }
+
+    const { data: existing } = await supabase
+      .from('channel_members')
+      .select('id')
+      .eq('channel_id', req.params.id)
+      .eq('user_id', req.auth.sub)
+      .maybeSingle()
+
+    if (!existing) {
+      const { error: memberError } = await supabase
+        .from('channel_members')
+        .insert({ channel_id: req.params.id, user_id: req.auth.sub })
+
+      if (memberError) throw new Error(memberError.message)
+    }
+
+    res.json({
+      joined: !existing,
+      group: { id: channel.id, name: channel.name },
+    })
+  } catch (error) {
+    sendError(res, error)
+  }
+})
+
+app.get('/groups/:groupId/messages', requireAuth, async (req, res) => {
+  try {
+    await ensureChannelMember(req.params.groupId, req.auth.sub)
+
+    const { data: messages, error: messagesError } = await supabase
+      .from('messages')
+      .select('id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64')
+      .eq('channel_id', req.params.groupId)
+      .order('created_at', { ascending: true })
+
+    if (messagesError) throw new Error(messagesError.message)
+
+    res.json({ messages: messages || [] })
+  } catch (error) {
+    sendError(res, error, 403)
+  }
+})
+
 app.get('/groups/:groupId/members/keys', requireAuth, async (req, res) => {
   try {
     await ensureChannelMember(req.params.groupId, req.auth.sub)
@@ -285,7 +386,6 @@ app.post('/messages', requireAuth, async (req, res) => {
     if (!req.body.ciphertext_base64) throw new Error('Falta el ciphertext.')
     if (!req.body.nonce_base64) throw new Error('Falta el nonce.')
     if (!req.body.auth_tag_base64) throw new Error('Falta el tag de autenticacion.')
-    if (encryptedKeys.length === 0) throw new Error('Faltan las claves AES cifradas.')
 
     await ensureChannelMember(channelId, req.auth.sub)
 
@@ -303,17 +403,21 @@ app.post('/messages', requireAuth, async (req, res) => {
 
     if (messageError) throw new Error(messageError.message)
 
-    const { data: keys, error: keysError } = await supabase
-      .from('message_keys')
-      .insert(
-        encryptedKeys.map((key) => ({
-          message_id: message.id,
-          encrypted_key_base64: key.encrypted_key_base64 || key.encrypted_key,
-        })),
-      )
-      .select('id, message_id, encrypted_key_base64')
+    let keys = []
+    if (encryptedKeys.length > 0) {
+      const { data: insertedKeys, error: keysError } = await supabase
+        .from('message_keys')
+        .insert(
+          encryptedKeys.map((key) => ({
+            message_id: message.id,
+            encrypted_key_base64: key.encrypted_key_base64 || key.encrypted_key,
+          })),
+        )
+        .select('id, message_id, encrypted_key_base64')
 
-    if (keysError) throw new Error(keysError.message)
+      if (keysError) throw new Error(keysError.message)
+      keys = insertedKeys || []
+    }
 
     res.status(201).json({
       message: {

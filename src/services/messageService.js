@@ -3,22 +3,59 @@ import {
   decryptStoredMessage,
   encryptMessageForRecipients,
 } from '../utils/messageCrypto'
+import {
+  decryptWithGroupKey,
+  deriveGroupAesKey,
+  encryptWithGroupKey,
+} from '../utils/crypto/groupKey'
 
-export async function createGroup(groupForm) {
-  const memberIds = groupForm.member_ids
-    .split(',')
-    .map((member) => member.trim())
-    .filter(Boolean)
+export { deriveGroupAesKey }
 
+export async function createGroup(name) {
   const data = await apiRequest('/groups', {
     method: 'POST',
-    body: JSON.stringify({
-      name: groupForm.name,
-      member_ids: memberIds,
-    }),
+    body: JSON.stringify({ name }),
   })
+  return data
+}
 
-  return data.group || data
+export async function searchGroupsByName(name) {
+  const data = await apiRequest(`/groups/search?name=${encodeURIComponent(name)}`)
+  return data.groups || []
+}
+
+export async function joinGroupWithCode(groupId, code) {
+  return await apiRequest(`/groups/${groupId}/join`, {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  })
+}
+
+export async function loadGroupMessages(groupId) {
+  const data = await apiRequest(`/groups/${groupId}/messages`)
+  return data.messages || []
+}
+
+export async function sendGroupMessage(groupId, plaintext, groupAesKey) {
+  const encryptedPayload = await encryptWithGroupKey(plaintext, groupAesKey)
+  const data = await apiRequest('/messages', {
+    method: 'POST',
+    body: JSON.stringify({ channel_id: groupId, ...encryptedPayload }),
+  })
+  return data.message || data
+}
+
+export async function decryptGroupMessages(messages, groupAesKey) {
+  return await Promise.all(
+    messages.map(async (message) => {
+      try {
+        const plaintext = await decryptWithGroupKey(message, groupAesKey)
+        return { ...message, plaintext, decrypt_error: '' }
+      } catch {
+        return { ...message, plaintext: '', decrypt_error: 'No se pudo descifrar.' }
+      }
+    }),
+  )
 }
 
 export async function loadUserGroups() {
