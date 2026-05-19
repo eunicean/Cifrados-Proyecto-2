@@ -227,6 +227,11 @@ function DirectMessages() {
     const cleanMessage = messageText.trim()
 
     if (!cleanMessage || !selectedContact) return
+    if (!privateKeyPem) {
+      showStatus('error', 'Desbloquea tu llave privada para firmar el mensaje antes de enviarlo.')
+      setShowUnlockModal(true)
+      return
+    }
 
     setLoading(true)
     showStatus('loading', 'Cifrando mensaje en el cliente...')
@@ -236,6 +241,7 @@ function DirectMessages() {
         recipient_id: selectedContact.id,
         recipient_email: selectedContact.email,
         content: cleanMessage,
+        signer_private_key_pem: privateKeyPem,
       })
       const [displayMessage] = await decryptMessagesWithPrivateKey(
         [sentMessage],
@@ -452,6 +458,7 @@ function DirectMessages() {
                 </div>
 
                 <p>{formatMessageContent(message, privateKeyPem)}</p>
+                <SignatureStatus status={message.signature_status} />
                 <small>{message.ciphertext_base64 ? 'AES-256-GCM guardado' : ''}</small>
               </article>
             ))
@@ -545,6 +552,24 @@ function formatMessageContent(message, privateKeyPem) {
   if (privateKeyPem && message.decrypt_error) return message.decrypt_error
   if (message.ciphertext_base64) return `Cifrado: ${message.ciphertext_base64}`
   return 'Mensaje cifrado'
+}
+
+function SignatureStatus({ status }) {
+  if (!status) return null
+
+  const labelByStatus = {
+    valid: 'Firma verificada',
+    invalid: 'Firma NO VERIFICADA',
+    unsigned: 'Sin firma digital',
+    'missing-public-key': 'Firma sin llave publica',
+    unknown: 'Firma pendiente',
+  }
+
+  return (
+    <span className={`signature-badge ${status}`}>
+      {labelByStatus[status] || 'Firma pendiente'}
+    </span>
+  )
 }
 
 function PreviewValue({ label, value }) {

@@ -10,21 +10,46 @@ import {
   saveBlock,
 } from './blockchainRepository.js'
 
+function shortValue(value) {
+  if (!value) return null
+  return String(value).slice(0, 12)
+}
+
+function logBlockchain(message, details = {}) {
+  console.log(`[blockchain] ${message}`, details)
+}
+
 export async function ensureGenesisBlock() {
   const lastBlock = await getLastBlock()
 
   if (lastBlock) {
+    logBlockchain('Genesis existente encontrado', {
+      index: lastBlock.index,
+      hash: shortValue(lastBlock.hash),
+    })
     return lastBlock
   }
 
   const genesisBlock = createGenesisBlock()
-  return await saveBlock(genesisBlock)
+  const savedGenesisBlock = await saveBlock(genesisBlock)
+  logBlockchain('Genesis creado', {
+    index: savedGenesisBlock.index,
+    hash: shortValue(savedGenesisBlock.hash),
+  })
+  return savedGenesisBlock
 }
 
 export async function registerMessageTransaction(message) {
   const lastBlock = await ensureGenesisBlock()
 
   const messageHash = getMessageHash(message)
+  logBlockchain('Preparando transaccion de mensaje', {
+    messageId: message.id,
+    senderId: message.sender_id,
+    groupId: message.group_id || null,
+    messageHash: shortValue(messageHash),
+    previousIndex: lastBlock.index,
+  })
 
   const newBlock = createNextBlock(lastBlock, {
     message_id: message.id,
@@ -34,17 +59,34 @@ export async function registerMessageTransaction(message) {
     message_hash: messageHash,
   })
 
-  return await saveBlock(newBlock)
+  const savedBlock = await saveBlock(newBlock)
+  logBlockchain('Bloque minado y guardado', {
+    index: savedBlock.index,
+    messageId: savedBlock.message_id,
+    hash: shortValue(savedBlock.hash),
+    previousHash: shortValue(savedBlock.previous_hash),
+    nonce: savedBlock.nonce,
+  })
+
+  return savedBlock
 }
 
 export async function getFullBlockchain() {
   await ensureGenesisBlock()
-  return await getBlockchain()
+  const chain = await getBlockchain()
+  logBlockchain('Cadena cargada', { blocks: chain.length })
+  return chain
 }
 
 export async function verifyFullBlockchain() {
   const chain = await getFullBlockchain()
-  return verifyBlockchain(chain)
+  const verification = verifyBlockchain(chain)
+  logBlockchain('Cadena verificada', {
+    valid: verification.valid,
+    blocks: verification.blocks,
+    invalidIndex: verification.invalid_index,
+  })
+  return verification
 }
 
 export function getMessageHash(message) {

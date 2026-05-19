@@ -1,6 +1,35 @@
-import { supabase } from '../lib/supabaseClient.js'
+import fs from 'node:fs'
+import { createClient } from '@supabase/supabase-js'
 
 const BLOCKCHAIN_TABLE = 'blockchain_blocks'
+
+function loadLocalEnv() {
+  if (!fs.existsSync('.env')) return
+
+  const lines = fs.readFileSync('.env', 'utf8').split('\n')
+  lines.forEach((line) => {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) return
+
+    const [key, ...valueParts] = trimmed.split('=')
+    if (process.env[key]) return
+    process.env[key] = valueParts.join('=').replace(/^["']|["']$/g, '')
+  })
+}
+
+loadLocalEnv()
+
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+const supabaseKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY
+
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error('Faltan variables de Supabase para iniciar blockchain.')
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey)
 
 function mapDbBlockToDomain(block) {
   return {

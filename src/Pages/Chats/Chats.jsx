@@ -10,6 +10,7 @@ import {
   searchGroupsByName,
   sendGroupMessage,
 } from '../../services/messageService'
+import { decryptPrivateKey } from '../../utils/privateKeyEncryption'
 import './Chats.css'
 
 const cryptoFlowSteps = [
@@ -37,6 +38,11 @@ function Chats() {
   const [loading, setLoading] = useState(false)
   const [lastEncryptedPayload, setLastEncryptedPayload] = useState(null)
   const [selectedMessage, setSelectedMessage] = useState(null)
+  const [signatureKeyForm, setSignatureKeyForm] = useState({
+    encrypted_key_json: '',
+    password: '',
+  })
+  const [signaturePrivateKeyPem, setSignaturePrivateKeyPem] = useState('')
   const groupKeysRef = useRef({})
   const [unlockedGroupIds, setUnlockedGroupIds] = useState(new Set())
 
@@ -75,7 +81,9 @@ function Chats() {
   }, [])
 
   useEffect(() => {
-    refreshGroups()
+    queueMicrotask(() => {
+      refreshGroups()
+    })
   }, [refreshGroups])
 
   // Load and decrypt messages whenever the selected group becomes unlocked
@@ -207,10 +215,20 @@ function Chats() {
       return
     }
 
+    if (!signaturePrivateKeyPem) {
+      showStatus('error', 'Activa tu llave de firma antes de enviar mensajes.')
+      return
+    }
+
     setLoading(true)
     showStatus('loading', 'Cifrando mensaje...')
     try {
-      const sentMessage = await sendGroupMessage(selectedGroupId, cleanMessage, aesKey)
+      const sentMessage = await sendGroupMessage(
+        selectedGroupId,
+        cleanMessage,
+        aesKey,
+        signaturePrivateKeyPem,
+      )
       const [decrypted] = await decryptGroupMessages([sentMessage], aesKey)
       setMessages((prev) => [...prev, decrypted])
       setLastEncryptedPayload(sentMessage)
@@ -221,6 +239,41 @@ function Chats() {
       showStatus('error', error.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleSignatureKeyFileChange(event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      const content = await file.text()
+      JSON.parse(content)
+      setSignatureKeyForm((current) => ({
+        ...current,
+        encrypted_key_json: content,
+      }))
+      showStatus('success', 'Archivo de firma cargado.')
+    } catch {
+      showStatus('error', 'El archivo de llave privada no tiene JSON valido.')
+    }
+  }
+
+  async function handleUnlockSignatureKey(event) {
+    event.preventDefault()
+
+    try {
+      const encryptedPrivateKey = JSON.parse(signatureKeyForm.encrypted_key_json)
+      const privateKeyPem = await decryptPrivateKey(
+        encryptedPrivateKey,
+        signatureKeyForm.password,
+      )
+
+      setSignaturePrivateKeyPem(privateKeyPem)
+      setSignatureKeyForm((current) => ({ ...current, password: '' }))
+      showStatus('success', 'Llave de firma lista. Los mensajes saldran firmados.')
+    } catch {
+      showStatus('error', 'No se pudo desbloquear la llave para firmar.')
     }
   }
 
@@ -387,6 +440,7 @@ function Chats() {
                     <span>{formatMessageTime(message.created_at)}</span>
                   </div>
                   <p>{message.plaintext || message.decrypt_error || '...'}</p>
+                  <SignatureStatus status={message.signature_status} />
                   <small>{message.ciphertext_base64 ? 'AES-256-GCM' : ''}</small>
                 </article>
               ))
@@ -443,6 +497,37 @@ function Chats() {
         </div>
 
         <div className="details-card">
+          <p className="section-label">Firma digital</p>
+          {signaturePrivateKeyPem ? (
+            <p className="verified-copy">Llave lista. Tus mensajes se firman con RSA-PSS.</p>
+          ) : (
+            <form className="key-card" onSubmit={handleUnlockSignatureKey}>
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={handleSignatureKeyFileChange}
+                required={!signatureKeyForm.encrypted_key_json}
+              />
+              <input
+                type="password"
+                value={signatureKeyForm.password}
+                onChange={(event) =>
+                  setSignatureKeyForm((current) => ({
+                    ...current,
+                    password: event.target.value,
+                  }))
+                }
+                placeholder="Contrasena"
+                required
+              />
+              <button disabled={loading || !signatureKeyForm.encrypted_key_json}>
+                Activar firma
+              </button>
+            </form>
+          )}
+        </div>
+
+        <div className="details-card">
           <p className="section-label">Seguridad</p>
           <div className="security-list">
             {cryptoFlowSteps.map((step, index) => (
@@ -476,6 +561,24 @@ function PreviewValue({ label, value }) {
       <span>{label}</span>
       <code>{value || 'Pendiente'}</code>
     </div>
+  )
+}
+
+function SignatureStatus({ status }) {
+  if (!status) return null
+
+  const labelByStatus = {
+    valid: 'Firma verificada',
+    invalid: 'Firma NO VERIFICADA',
+    unsigned: 'Sin firma digital',
+    'missing-public-key': 'Firma sin llave publica',
+    unknown: 'Firma pendiente',
+  }
+
+  return (
+    <span className={`signature-badge ${status}`}>
+      {labelByStatus[status] || 'Firma pendiente'}
+    </span>
   )
 }
 

@@ -4,6 +4,11 @@ import express from 'express'
 import { createClient } from '@supabase/supabase-js'
 import { hashPassword } from './src/auth/passwordHash.js'
 import { loginUser } from './src/auth/loginUser.js'
+import {
+  getFullBlockchain,
+  registerMessageTransaction,
+  verifyFullBlockchain,
+} from './src/blockchain/blockchainService.js'
 import { verifyJwt } from './src/utils/jwt.js'
 
 function loadLocalEnv() {
@@ -37,6 +42,19 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 
+function logInfo(scope, message, details = {}) {
+  console.log(`[${scope}] ${message}`, details)
+}
+
+function logWarn(scope, message, details = {}) {
+  console.warn(`[${scope}] ${message}`, details)
+}
+
+function shortValue(value) {
+  if (!value) return null
+  return String(value).slice(0, 12)
+}
+
 app.use(express.json({ limit: '1mb' }))
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', process.env.CLIENT_ORIGIN || '*')
@@ -62,6 +80,10 @@ function hashCode(code) {
 }
 
 function sendError(res, error, status = 400) {
+  logWarn('api', 'Solicitud rechazada', {
+    status,
+    message: error.message || 'Ocurrio un error.',
+  })
   res.status(status).json({ message: error.message || 'Ocurrio un error.' })
 }
 
@@ -77,6 +99,11 @@ function requireAuth(req, res, next) {
 }
 
 async function ensureChannelMember(channelId, userId) {
+  logInfo('authz', 'Verificando membresia de canal', {
+    channelId,
+    userId,
+  })
+
   const { data, error } = await supabase
     .from('channel_members')
     .select('id')
@@ -86,10 +113,35 @@ async function ensureChannelMember(channelId, userId) {
 
   if (error) throw new Error(error.message)
   if (!data) throw new Error('No perteneces a este chat.')
+  logInfo('authz', 'Membresia confirmada', { channelId, userId })
 }
 
 function buildDirectChannelName(userId, recipientId) {
   return `direct:${[userId, recipientId].sort().join(':')}`
+}
+
+async function attachSenderPublicKeys(messages) {
+  const senderIds = [
+    ...new Set(messages.map((message) => message.sender_id).filter(Boolean)),
+  ]
+
+  if (senderIds.length === 0) return messages
+
+  const { data: users, error } = await supabase
+    .from('user')
+    .select('id, key')
+    .in('id', senderIds)
+
+  if (error) throw new Error(error.message)
+
+  const publicKeysByUserId = new Map(
+    users.map((user) => [user.id, user.key]),
+  )
+
+  return messages.map((message) => ({
+    ...message,
+    sender_public_key: publicKeysByUserId.get(message.sender_id) || '',
+  }))
 }
 
 app.post('/auth/register', async (req, res) => {
@@ -104,6 +156,11 @@ app.post('/auth/register', async (req, res) => {
     if (!publicKey) throw new Error('Falta la llave publica RSA del usuario.')
 
     const passwordHash = await hashPassword(password)
+    logInfo('auth', 'Registrando usuario con llave publica', {
+      email,
+      hasPublicKey: Boolean(publicKey),
+    })
+
     const { data, error } = await supabase
       .from('user')
       .insert({
@@ -120,6 +177,7 @@ app.post('/auth/register', async (req, res) => {
       throw new Error(error.message)
     }
 
+    logInfo('auth', 'Usuario registrado', { userId: data.id, email: data.email })
     res.status(201).json({ user: data })
   } catch (error) {
     sendError(res, error)
@@ -143,6 +201,10 @@ app.post('/auth/login', async (req, res) => {
       },
     })
 
+    logInfo('auth', 'Sesion iniciada', {
+      userId: result.user?.id,
+      email: result.user?.email,
+    })
     res.json(result)
   } catch (error) {
     sendError(res, error, 401)
@@ -156,6 +218,11 @@ app.post('/groups', requireAuth, async (req, res) => {
 
     const code = generateGroupCode()
     const keyHash = hashCode(code)
+    logInfo('groups', 'Creando grupo', {
+      name,
+      createdBy: req.auth.sub,
+      keyHash: shortValue(keyHash),
+    })
 
     const { data: channel, error: channelError } = await supabase
       .from('channels')
@@ -170,6 +237,11 @@ app.post('/groups', requireAuth, async (req, res) => {
       .insert({ channel_id: channel.id, user_id: req.auth.sub })
 
     if (membersError) throw new Error(membersError.message)
+
+    logInfo('groups', 'Grupo creado', {
+      groupId: channel.id,
+      createdBy: req.auth.sub,
+    })
 
     res.status(201).json({
       group: { ...channel, member_ids: [req.auth.sub] },
@@ -222,6 +294,11 @@ app.get('/groups', requireAuth, async (req, res) => {
 
     if (usersError) throw new Error(usersError.message)
 
+    logInfo('groups', 'Grupos cargados', {
+      userId: req.auth.sub,
+      count: channels.length,
+    })
+
     res.json({
       groups: channels.map((channel) => {
         const members = allMembers
@@ -260,6 +337,7 @@ app.get('/direct-conversations', requireAuth, async (req, res) => {
     const channelIds = memberships.map((membership) => membership.channel_id).filter(Boolean)
 
     if (channelIds.length === 0) {
+      logInfo('direct', 'Sin conversaciones directas', { userId: req.auth.sub })
       res.json({ conversations: [] })
       return
     }
@@ -306,6 +384,11 @@ app.get('/direct-conversations', requireAuth, async (req, res) => {
 
     if (usersError) throw new Error(usersError.message)
 
+    logInfo('direct', 'Conversaciones directas cargadas', {
+      userId: req.auth.sub,
+      count: channels.length,
+    })
+
     res.json({
       conversations: channels.map((channel) => {
         const contactMembership = members.find(
@@ -348,6 +431,11 @@ app.post('/direct-conversations', requireAuth, async (req, res) => {
     if (recipient.id === req.auth.sub) throw new Error('No puedes iniciar un chat contigo mismo.')
 
     const channelName = buildDirectChannelName(req.auth.sub, recipient.id)
+    logInfo('direct', 'Preparando conversacion directa', {
+      senderId: req.auth.sub,
+      recipientId: recipient.id,
+      channelName,
+    })
     const { data: existingChannel, error: existingChannelError } = await supabase
       .from('channels')
       .select('id, name, created_at')
@@ -377,6 +465,12 @@ app.post('/direct-conversations', requireAuth, async (req, res) => {
       if (membersError) throw new Error(membersError.message)
       channel = newChannel
     }
+
+    logInfo('direct', existingChannel ? 'Conversacion reutilizada' : 'Conversacion creada', {
+      channelId: channel.id,
+      senderId: req.auth.sub,
+      recipientId: recipient.id,
+    })
 
     res.status(existingChannel ? 200 : 201).json({
       conversation: {
@@ -421,6 +515,12 @@ app.get('/groups/search', requireAuth, async (req, res) => {
       memberChannelIds = new Set((memberships || []).map((m) => m.channel_id))
     }
 
+    logInfo('groups', 'Busqueda de grupos completada', {
+      userId: req.auth.sub,
+      query: name,
+      count: channels.length,
+    })
+
     res.json({
       groups: channels.map((channel) => ({
         ...channel,
@@ -447,6 +547,10 @@ app.post('/groups/:id/join', requireAuth, async (req, res) => {
     if (!channel) throw new Error('Grupo no encontrado.')
 
     if (hashCode(code) !== channel.key_hash) {
+      logWarn('groups', 'Codigo de grupo incorrecto', {
+        groupId: req.params.id,
+        userId: req.auth.sub,
+      })
       throw new Error('Código de grupo incorrecto.')
     }
 
@@ -465,6 +569,11 @@ app.post('/groups/:id/join', requireAuth, async (req, res) => {
       if (memberError) throw new Error(memberError.message)
     }
 
+    logInfo('groups', existing ? 'Grupo desbloqueado por miembro existente' : 'Usuario unido al grupo', {
+      groupId: req.params.id,
+      userId: req.auth.sub,
+    })
+
     res.json({
       joined: !existing,
       group: { id: channel.id, name: channel.name },
@@ -480,13 +589,19 @@ app.get('/groups/:groupId/messages', requireAuth, async (req, res) => {
 
     const { data: messages, error: messagesError } = await supabase
       .from('messages')
-      .select('id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64, plaintext_hash')
+      .select('id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64, plaintext_hash, signature_base64, signature_algorithm')
       .eq('channel_id', req.params.groupId)
       .order('created_at', { ascending: true })
 
     if (messagesError) throw new Error(messagesError.message)
 
-    res.json({ messages: messages || [] })
+    const messagesWithSenderKeys = await attachSenderPublicKeys(messages || [])
+    logInfo('messages', 'Mensajes de grupo cargados', {
+      groupId: req.params.groupId,
+      userId: req.auth.sub,
+      count: messagesWithSenderKeys.length,
+    })
+    res.json({ messages: messagesWithSenderKeys })
   } catch (error) {
     sendError(res, error, 403)
   }
@@ -510,6 +625,11 @@ app.get('/groups/:groupId/members/keys', requireAuth, async (req, res) => {
       .in('id', userIds)
 
     if (usersError) throw new Error(usersError.message)
+
+    logInfo('messages', 'Llaves publicas de miembros cargadas', {
+      groupId: req.params.groupId,
+      members: users.length,
+    })
 
     res.json({
       members: users.map((user) => ({
@@ -538,6 +658,13 @@ app.post('/messages', requireAuth, async (req, res) => {
     if (!req.body.auth_tag_base64) throw new Error('Falta el tag de autenticacion.')
 
     await ensureChannelMember(channelId, req.auth.sub)
+    logInfo('messages', 'Guardando mensaje cifrado', {
+      channelId,
+      senderId: req.auth.sub,
+      hasPlaintextHash: Boolean(req.body.plaintext_hash || req.body.message_hash),
+      hasSignature: Boolean(req.body.signature_base64),
+      encryptedKeys: encryptedKeys.length,
+    })
 
     const { data: message, error: messageError } = await supabase
       .from('messages')
@@ -548,11 +675,35 @@ app.post('/messages', requireAuth, async (req, res) => {
         nonce_base64: req.body.nonce_base64,
         auth_tag_base64: req.body.auth_tag_base64,
         plaintext_hash: req.body.plaintext_hash || req.body.message_hash || null,
+        signature_base64: req.body.signature_base64 || null,
+        signature_algorithm: req.body.signature_algorithm || null,
       })
-      .select('id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64, plaintext_hash')
+      .select('id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64, plaintext_hash, signature_base64, signature_algorithm')
       .single()
 
     if (messageError) throw new Error(messageError.message)
+    logInfo('messages', 'Mensaje guardado', {
+      messageId: message.id,
+      channelId: message.channel_id,
+      hash: shortValue(message.plaintext_hash),
+      signatureAlgorithm: message.signature_algorithm || 'none',
+    })
+
+    try {
+      const block = await registerMessageTransaction({
+        ...message,
+        group_id: message.channel_id,
+        message_hash: message.plaintext_hash,
+      })
+      logInfo('blockchain', 'Mensaje registrado en blockchain', {
+        messageId: message.id,
+        blockIndex: block.index,
+        blockHash: shortValue(block.hash),
+        previousHash: shortValue(block.previous_hash),
+      })
+    } catch (blockchainError) {
+      console.error('[blockchain] No se pudo registrar el mensaje:', blockchainError.message)
+    }
 
     let keys = []
     if (encryptedKeys.length > 0) {
@@ -568,11 +719,17 @@ app.post('/messages', requireAuth, async (req, res) => {
 
       if (keysError) throw new Error(keysError.message)
       keys = insertedKeys || []
+      logInfo('messages', 'Claves cifradas guardadas', {
+        messageId: message.id,
+        count: keys.length,
+      })
     }
+
+    const [messageWithSenderKey] = await attachSenderPublicKeys([message])
 
     res.status(201).json({
       message: {
-        ...message,
+        ...messageWithSenderKey,
         group_id: message.channel_id,
         ciphertext: message.ciphertext_base64,
         nonce: message.nonce_base64,
@@ -607,11 +764,15 @@ app.get('/messages/:userId', requireAuth, async (req, res) => {
 
     const { data: allMessages, error: messagesError } = await supabase
       .from('messages')
-      .select('id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64, plaintext_hash')
+      .select('id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64, plaintext_hash, signature_base64, signature_algorithm')
       .in('channel_id', channelIds)
       .order('created_at', { ascending: false })
 
     if (messagesError) throw new Error(messagesError.message)
+    logInfo('messages', 'Mensajes del usuario cargados', {
+      userId: req.auth.sub,
+      count: allMessages.length,
+    })
 
     const messageIds = allMessages.map((message) => message.id)
 
@@ -627,8 +788,10 @@ app.get('/messages/:userId', requireAuth, async (req, res) => {
 
     if (keysError) throw new Error(keysError.message)
 
+    const messagesWithSenderKeys = await attachSenderPublicKeys(allMessages)
+
     res.json({
-      messages: allMessages.map((message) => ({
+      messages: messagesWithSenderKeys.map((message) => ({
         ...message,
         group_id: message.channel_id,
         ciphertext: message.ciphertext_base64,
@@ -655,6 +818,37 @@ app.get('/users', async (req, res) => {
   }
 })
 
+app.get('/blockchain', requireAuth, async (req, res) => {
+  try {
+    const blocks = await getFullBlockchain()
+    logInfo('blockchain', 'Cadena consultada', {
+      userId: req.auth.sub,
+      blocks: blocks.length,
+    })
+    res.json({ blocks })
+  } catch (error) {
+    sendError(res, error, 500)
+  }
+})
+
+app.get('/blockchain/verify', requireAuth, async (req, res) => {
+  try {
+    const verification = await verifyFullBlockchain()
+    logInfo('blockchain', 'Verificacion de cadena ejecutada', {
+      userId: req.auth.sub,
+      valid: verification.valid,
+      blocks: verification.blocks,
+      invalidIndex: verification.invalid_index,
+    })
+    res.json(verification)
+  } catch (error) {
+    sendError(res, error, 500)
+  }
+})
+
 app.listen(port, () => {
-  console.log(`API REST escuchando en http://localhost:${port}`)
+  logInfo('server', `API REST escuchando en http://localhost:${port}`, {
+    supabaseUrl,
+    hasServiceRole: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+  })
 })

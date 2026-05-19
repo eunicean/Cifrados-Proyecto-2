@@ -343,6 +343,54 @@
   color: rgba(255, 255, 255, 0.72);
 }
 
+.signature-badge {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 10px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.72rem;
+  font-weight: 950;
+}
+
+.signature-badge.valid {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.signature-badge.invalid {
+  background: #fee2e2;
+  color: #b42318;
+}
+
+.signature-badge.unsigned,
+.signature-badge.unknown,
+.signature-badge.missing-public-key {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.verified-copy {
+  margin: 0;
+  color: #166534;
+  font-weight: 850;
+}
+
+.message-bubble.own .signature-badge.valid {
+  background: rgba(220, 252, 231, 0.18);
+  color: #dcfce7;
+}
+
+.message-bubble.own .signature-badge.invalid,
+.message-bubble.own .signature-badge.unsigned,
+.message-bubble.own .signature-badge.unknown,
+.message-bubble.own .signature-badge.missing-public-key {
+  background: rgba(254, 243, 199, 0.18);
+  color: #fef3c7;
+}
+
 .message-composer {
   display: grid;
   grid-template-columns: 1fr auto;
