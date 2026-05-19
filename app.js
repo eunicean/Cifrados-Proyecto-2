@@ -88,6 +88,10 @@ async function ensureChannelMember(channelId, userId) {
   if (!data) throw new Error('No perteneces a este chat.')
 }
 
+function buildDirectChannelName(userId, recipientId) {
+  return `direct:${[userId, recipientId].sort().join(':')}`
+}
+
 app.post('/auth/register', async (req, res) => {
   try {
     const name = (req.body.name || req.body.display_name || '').trim()
@@ -198,6 +202,7 @@ app.get('/groups', requireAuth, async (req, res) => {
       .from('channels')
       .select('id, name, created_at, created_by')
       .in('id', channelIds)
+      .not('name', 'like', 'direct:%')
       .order('created_at', { ascending: false })
 
     if (channelsError) throw new Error(channelsError.message)
@@ -240,6 +245,150 @@ app.get('/groups', requireAuth, async (req, res) => {
     })
   } catch (error) {
     sendError(res, error, 403)
+  }
+})
+
+app.get('/direct-conversations', requireAuth, async (req, res) => {
+  try {
+    const { data: memberships, error: membershipError } = await supabase
+      .from('channel_members')
+      .select('channel_id')
+      .eq('user_id', req.auth.sub)
+
+    if (membershipError) throw new Error(membershipError.message)
+
+    const channelIds = memberships.map((membership) => membership.channel_id).filter(Boolean)
+
+    if (channelIds.length === 0) {
+      res.json({ conversations: [] })
+      return
+    }
+
+    const { data: channels, error: channelsError } = await supabase
+      .from('channels')
+      .select('id, name, created_at')
+      .in('id', channelIds)
+      .like('name', 'direct:%')
+      .order('created_at', { ascending: false })
+
+    if (channelsError) throw new Error(channelsError.message)
+
+    if (channels.length === 0) {
+      res.json({ conversations: [] })
+      return
+    }
+
+    const directChannelIds = channels.map((channel) => channel.id)
+    const { data: members, error: membersError } = await supabase
+      .from('channel_members')
+      .select('channel_id, user_id')
+      .in('channel_id', directChannelIds)
+
+    if (membersError) throw new Error(membersError.message)
+
+    const contactIds = [
+      ...new Set(
+        members
+          .map((member) => member.user_id)
+          .filter((userId) => userId && userId !== req.auth.sub),
+      ),
+    ]
+
+    if (contactIds.length === 0) {
+      res.json({ conversations: [] })
+      return
+    }
+
+    const { data: users, error: usersError } = await supabase
+      .from('user')
+      .select('id, name, email, key')
+      .in('id', contactIds)
+
+    if (usersError) throw new Error(usersError.message)
+
+    res.json({
+      conversations: channels.map((channel) => {
+        const contactMembership = members.find(
+          (member) =>
+            member.channel_id === channel.id && member.user_id !== req.auth.sub,
+        )
+        const contact = users.find((user) => user.id === contactMembership?.user_id)
+
+        return {
+          id: contact?.id || contactMembership?.user_id || channel.id,
+          channel_id: channel.id,
+          name: contact?.name || contact?.email || 'Contacto',
+          email: contact?.email || '',
+          key: contact?.key || '',
+        }
+      }),
+    })
+  } catch (error) {
+    sendError(res, error, 403)
+  }
+})
+
+app.post('/direct-conversations', requireAuth, async (req, res) => {
+  try {
+    const recipientEmail = (req.body.recipient_email || '').trim().toLowerCase()
+    const recipientId = req.body.recipient_id
+
+    let recipientQuery = supabase
+      .from('user')
+      .select('id, name, email, key')
+
+    recipientQuery = recipientId
+      ? recipientQuery.eq('id', recipientId)
+      : recipientQuery.eq('email', recipientEmail)
+
+    const { data: recipient, error: recipientError } = await recipientQuery.maybeSingle()
+
+    if (recipientError) throw new Error(recipientError.message)
+    if (!recipient) throw new Error('Contacto no encontrado.')
+    if (recipient.id === req.auth.sub) throw new Error('No puedes iniciar un chat contigo mismo.')
+
+    const channelName = buildDirectChannelName(req.auth.sub, recipient.id)
+    const { data: existingChannel, error: existingChannelError } = await supabase
+      .from('channels')
+      .select('id, name, created_at')
+      .eq('name', channelName)
+      .maybeSingle()
+
+    if (existingChannelError) throw new Error(existingChannelError.message)
+
+    let channel = existingChannel
+
+    if (!channel) {
+      const { data: newChannel, error: channelError } = await supabase
+        .from('channels')
+        .insert({ name: channelName, created_by: req.auth.sub })
+        .select('id, name, created_at')
+        .single()
+
+      if (channelError) throw new Error(channelError.message)
+
+      const { error: membersError } = await supabase
+        .from('channel_members')
+        .insert([
+          { channel_id: newChannel.id, user_id: req.auth.sub },
+          { channel_id: newChannel.id, user_id: recipient.id },
+        ])
+
+      if (membersError) throw new Error(membersError.message)
+      channel = newChannel
+    }
+
+    res.status(existingChannel ? 200 : 201).json({
+      conversation: {
+        id: recipient.id,
+        channel_id: channel.id,
+        name: recipient.name || recipient.email,
+        email: recipient.email,
+        key: recipient.key,
+      },
+    })
+  } catch (error) {
+    sendError(res, error)
   }
 })
 
@@ -331,7 +480,7 @@ app.get('/groups/:groupId/messages', requireAuth, async (req, res) => {
 
     const { data: messages, error: messagesError } = await supabase
       .from('messages')
-      .select('id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64')
+      .select('id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64, plaintext_hash')
       .eq('channel_id', req.params.groupId)
       .order('created_at', { ascending: true })
 
@@ -382,7 +531,8 @@ app.post('/messages', requireAuth, async (req, res) => {
       ? req.body.encrypted_keys
       : []
 
-    if (!channelId) throw new Error('Falta el ID del grupo.')
+    if (!channelId) throw new Error('Falta el ID del canal.')
+
     if (!req.body.ciphertext_base64) throw new Error('Falta el ciphertext.')
     if (!req.body.nonce_base64) throw new Error('Falta el nonce.')
     if (!req.body.auth_tag_base64) throw new Error('Falta el tag de autenticacion.')
@@ -392,13 +542,14 @@ app.post('/messages', requireAuth, async (req, res) => {
     const { data: message, error: messageError } = await supabase
       .from('messages')
       .insert({
-        channel_id: channelId,
+        channel_id: channelId || null,
         sender_id: req.auth.sub,
         ciphertext_base64: req.body.ciphertext_base64,
         nonce_base64: req.body.nonce_base64,
         auth_tag_base64: req.body.auth_tag_base64,
+        plaintext_hash: req.body.plaintext_hash || req.body.message_hash || null,
       })
-      .select('id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64')
+      .select('id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64, plaintext_hash')
       .single()
 
     if (messageError) throw new Error(messageError.message)
@@ -448,20 +599,22 @@ app.get('/messages/:userId', requireAuth, async (req, res) => {
     if (membershipError) throw new Error(membershipError.message)
 
     const channelIds = memberships.map((membership) => membership.channel_id).filter(Boolean)
+
     if (channelIds.length === 0) {
       res.json({ messages: [] })
       return
     }
 
-    const { data: messages, error: messagesError } = await supabase
+    const { data: allMessages, error: messagesError } = await supabase
       .from('messages')
-      .select('id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64')
+      .select('id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64, plaintext_hash')
       .in('channel_id', channelIds)
       .order('created_at', { ascending: false })
 
     if (messagesError) throw new Error(messagesError.message)
 
-    const messageIds = messages.map((message) => message.id)
+    const messageIds = allMessages.map((message) => message.id)
+
     if (messageIds.length === 0) {
       res.json({ messages: [] })
       return
@@ -475,7 +628,7 @@ app.get('/messages/:userId', requireAuth, async (req, res) => {
     if (keysError) throw new Error(keysError.message)
 
     res.json({
-      messages: messages.map((message) => ({
+      messages: allMessages.map((message) => ({
         ...message,
         group_id: message.channel_id,
         ciphertext: message.ciphertext_base64,
@@ -486,6 +639,19 @@ app.get('/messages/:userId', requireAuth, async (req, res) => {
     })
   } catch (error) {
     sendError(res, error, 403)
+  }
+})
+
+app.get('/users', async (req, res) => {
+  try {
+    const { data: users, error } = await supabase
+      .from('user')
+      .select('id, name, email, key')
+
+    if (error) throw new Error(error.message)
+    res.json({ users })
+  } catch (error) {
+    sendError(res, error)
   }
 })
 
