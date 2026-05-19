@@ -286,12 +286,27 @@ function Login() {
         </div>
 
         <div className="user-card">
-          <span>Sesión activa</span>
-          <strong>{currentUser.display_name || currentUser.email}</strong>
-          <small>{currentUser.id}</small>
+          <div className="user-card-header">
+            <div className="user-avatar">
+              {(currentUser.display_name || currentUser.email || 'U').charAt(0).toUpperCase()}
+            </div>
 
-          <button onClick={handleLogout}>
-            Cerrar sesión
+            <div>
+              <span className="session-pill">
+                <span></span>
+                Sesion activa
+              </span>
+              <strong>{currentUser.display_name || currentUser.email}</strong>
+            </div>
+          </div>
+
+          <div className="user-meta">
+            <span>{currentUser.email}</span>
+            <small>{currentUser.id}</small>
+          </div>
+
+          <button className="logout-button" onClick={handleLogout}>
+            Cerrar sesion
           </button>
         </div>
       </aside>

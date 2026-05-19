@@ -388,40 +388,41 @@ function DirectMessages() {
           )}
         </section>
 
-        {showNewContactForm ? (
-          <form className="new-group-form" onSubmit={handleStartConversation}>
-            <input
-              name="recipient_email"
-              value={contactForm.recipient_email}
-              onChange={handleContactFormChange}
-              placeholder="Email del contacto"
-              type="email"
-              required
-            />
-            <button className="new-group-button" disabled={loading}>
-              Iniciar chat
-            </button>
+        <div className="sidebar-actions">
+          {showNewContactForm ? (
+            <form className="new-group-form" onSubmit={handleStartConversation}>
+              <p className="section-label">Nuevo chat</p>
+              <input
+                name="recipient_email"
+                value={contactForm.recipient_email}
+                onChange={handleContactFormChange}
+                placeholder="Email del contacto"
+                type="email"
+                required
+              />
+              <button className="new-group-button" disabled={loading}>
+                Iniciar chat
+              </button>
+              <button
+                type="button"
+                className="new-group-button secondary"
+                onClick={() => {
+                  setShowNewContactForm(false)
+                  setContactForm(emptyContactForm)
+                }}
+              >
+                Cancelar
+              </button>
+            </form>
+          ) : (
             <button
-              type="button"
               className="new-group-button"
-              onClick={() => {
-                setShowNewContactForm(false)
-                setContactForm(emptyContactForm)
-              }}
-              style={{ opacity: 0.6 }}
+              onClick={() => setShowNewContactForm(true)}
             >
-              Cancelar
+              + Nuevo chat
             </button>
-          </form>
-        ) : (
-          <button
-            className="new-group-button"
-            onClick={() => setShowNewContactForm(true)}
-            style={{ marginTop: '1rem' }}
-          >
-            + Nuevo chat
-          </button>
-        )}
+          )}
+        </div>
       </aside>
 
       <section className="chat-main">

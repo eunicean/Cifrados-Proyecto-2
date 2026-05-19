@@ -15,7 +15,7 @@ import './Chats.css'
 
 const cryptoFlowSteps = [
   'El creador genera un código de 8 caracteres.',
-  'El servidor almacena SHA-256 del código, nunca el código en claro.',
+  'El servidor valida el código con SHA-256 y solo muestra el código al creador.',
   'El cliente deriva AES-256 del código + groupId con PBKDF2 (100k iter).',
   'Cada mensaje se cifra con AES-256-GCM y un nonce único de 12 bytes.',
   'Solo el ciphertext, nonce y auth_tag se almacenan en Supabase.',
@@ -65,6 +65,9 @@ function Chats() {
   )
 
   const isUnlocked = unlockedGroupIds.has(selectedGroupId)
+  const selectedGroupInviteCode =
+    selectedGroup?.invite_code ||
+    (selectedGroup?.created_by === currentUser?.id ? createdGroupCode : '')
 
   function showStatus(type, message) {
     setStatus({ type, message })
@@ -85,6 +88,46 @@ function Chats() {
       refreshGroups()
     })
   }, [refreshGroups])
+
+  useEffect(() => {
+    if (!currentUser?.id || groups.length === 0) return
+
+    let cancelled = false
+
+    async function unlockCreatorGroups() {
+      const creatorGroups = groups.filter(
+        (group) =>
+          group.created_by === currentUser.id &&
+          group.invite_code &&
+          !groupKeysRef.current[group.id],
+      )
+
+      if (creatorGroups.length === 0) return
+
+      const unlockedGroups = await Promise.all(
+        creatorGroups.map(async (group) => ({
+          id: group.id,
+          key: await deriveGroupAesKey(group.invite_code, group.id),
+        })),
+      )
+
+      if (cancelled) return
+
+      unlockedGroups.forEach((group) => {
+        groupKeysRef.current[group.id] = group.key
+      })
+
+      setUnlockedGroupIds((current) =>
+        new Set([...current, ...unlockedGroups.map((group) => group.id)]),
+      )
+    }
+
+    unlockCreatorGroups()
+
+    return () => {
+      cancelled = true
+    }
+  }, [groups, currentUser?.id])
 
   // Load and decrypt messages whenever the selected group becomes unlocked
   useEffect(() => {
@@ -134,8 +177,9 @@ function Chats() {
       const data = await createGroup(newGroupName.trim())
       const group = data.group || data
       const code = data.code
+      const groupWithCode = code ? { ...group, invite_code: code } : group
 
-      setGroups((prev) => [group, ...prev])
+      setGroups((prev) => [groupWithCode, ...prev])
       setNewGroupName('')
 
       if (code) {
@@ -330,51 +374,52 @@ function Chats() {
           )}
         </section>
 
-        <form className="new-group-form" onSubmit={handleSearch}>
-          <p className="section-label" style={{ marginBottom: '0.5rem' }}>Buscar grupo</p>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Nombre del grupo..."
-            />
-            <button type="submit" disabled={loading} style={{ whiteSpace: 'nowrap' }}>
-              Buscar
-            </button>
-          </div>
-          {searchResults.length > 0 && (
-            <div style={{ marginTop: '0.5rem' }}>
-              {searchResults.map((result) => (
-                <button
-                  key={result.id}
-                  type="button"
-                  className="group-chat-card"
-                  style={{ width: '100%', marginBottom: '0.25rem' }}
-                  onClick={() => handleSelectSearchResult(result)}
-                >
-                  <div className="group-icon">{result.name.charAt(0).toUpperCase()}</div>
-                  <div className="group-info">
-                    <strong>{result.name}</strong>
-                    <span>{result.is_member ? 'Ya eres miembro' : 'Únete con código'}</span>
-                  </div>
-                </button>
-              ))}
+        <div className="sidebar-actions">
+          <form className="new-group-form" onSubmit={handleSearch}>
+            <p className="section-label">Buscar grupo</p>
+            <div className="sidebar-inline-form">
+              <input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Nombre del grupo..."
+              />
+              <button type="submit" disabled={loading}>
+                Buscar
+              </button>
             </div>
-          )}
-        </form>
+            {searchResults.length > 0 && (
+              <div className="sidebar-results">
+                {searchResults.map((result) => (
+                  <button
+                    key={result.id}
+                    type="button"
+                    className="group-chat-card"
+                    onClick={() => handleSelectSearchResult(result)}
+                  >
+                    <div className="group-icon">{result.name.charAt(0).toUpperCase()}</div>
+                    <div className="group-info">
+                      <strong>{result.name}</strong>
+                      <span>{result.is_member ? 'Ya eres miembro' : 'Unete con codigo'}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </form>
 
-        <form className="new-group-form" onSubmit={handleCreateGroup}>
-          <p className="section-label" style={{ marginBottom: '0.5rem' }}>Crear grupo</p>
-          <input
-            value={newGroupName}
-            onChange={(e) => setNewGroupName(e.target.value)}
-            placeholder="Nombre del grupo"
-            required
-          />
-          <button className="new-group-button" disabled={loading}>
-            Crear canal
-          </button>
-        </form>
+          <form className="new-group-form" onSubmit={handleCreateGroup}>
+            <p className="section-label">Crear grupo</p>
+            <input
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+              placeholder="Nombre del grupo"
+              required
+            />
+            <button className="new-group-button" disabled={loading}>
+              Crear canal
+            </button>
+          </form>
+        </div>
       </aside>
 
       <section className="chat-main">
@@ -472,14 +517,14 @@ function Chats() {
           <p>{selectedGroup?.description}</p>
         </div>
 
-        {createdGroupCode && (
+        {selectedGroupInviteCode && (
           <div className="details-card" style={{ background: 'var(--color-accent, #3b82f6)', color: '#fff' }}>
             <p className="section-label" style={{ color: 'rgba(255,255,255,0.8)' }}>Código del grupo</p>
             <p style={{ fontSize: '1.8rem', fontWeight: 700, letterSpacing: '0.3em', margin: '0.5rem 0' }}>
-              {createdGroupCode}
+              {selectedGroupInviteCode}
             </p>
             <p style={{ fontSize: '0.8rem', opacity: 0.85 }}>
-              Comparte este código con quienes quieras invitar. Solo se muestra una vez.
+              Comparte este código con quienes quieras invitar.
             </p>
           </div>
         )}

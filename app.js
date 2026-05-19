@@ -226,7 +226,12 @@ app.post('/groups', requireAuth, async (req, res) => {
 
     const { data: channel, error: channelError } = await supabase
       .from('channels')
-      .insert({ name, created_by: req.auth.sub, key_hash: keyHash })
+      .insert({
+        name,
+        created_by: req.auth.sub,
+        key_hash: keyHash,
+        group_code: code,
+      })
       .select('id, name, created_at, created_by')
       .single()
 
@@ -244,7 +249,7 @@ app.post('/groups', requireAuth, async (req, res) => {
     })
 
     res.status(201).json({
-      group: { ...channel, member_ids: [req.auth.sub] },
+      group: { ...channel, invite_code: code, member_ids: [req.auth.sub] },
       code,
     })
   } catch (error) {
@@ -272,7 +277,7 @@ app.get('/groups', requireAuth, async (req, res) => {
 
     const { data: channels, error: channelsError } = await supabase
       .from('channels')
-      .select('id, name, created_at, created_by')
+      .select('id, name, created_at, created_by, group_code')
       .in('id', channelIds)
       .not('name', 'like', 'direct:%')
       .order('created_at', { ascending: false })
@@ -313,7 +318,11 @@ app.get('/groups', requireAuth, async (req, res) => {
           })
 
         return {
-          ...channel,
+          id: channel.id,
+          name: channel.name,
+          created_at: channel.created_at,
+          created_by: channel.created_by,
+          invite_code: channel.created_by === req.auth.sub ? channel.group_code : null,
           description: `${members.length} miembro${members.length === 1 ? '' : 's'}`,
           members,
           member_ids: members.map((member) => member.user_id),

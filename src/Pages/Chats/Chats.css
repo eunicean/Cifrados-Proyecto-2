@@ -1,7 +1,9 @@
 .chats-page {
-  min-height: 100svh;
+  height: 100svh;
+  min-height: 0;
   display: grid;
   grid-template-columns: 310px minmax(420px, 1fr) 320px;
+  overflow: hidden;
   background:
     radial-gradient(circle at 12% 10%, rgba(36, 87, 214, 0.14), transparent 30%),
     radial-gradient(circle at 80% 80%, rgba(36, 87, 214, 0.1), transparent 28%),
@@ -10,11 +12,13 @@
 }
 
 .chats-sidebar {
-  min-height: 100svh;
-  padding: 24px;
+  height: 100svh;
+  min-height: 0;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 14px;
+  overflow: hidden;
   background:
     radial-gradient(circle at top left, rgba(36, 87, 214, 0.38), transparent 36%),
     #0f172a;
@@ -22,6 +26,7 @@
 }
 
 .chats-brand {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -64,6 +69,10 @@
   outline: none;
 }
 
+.chats-search {
+  flex: 0 0 auto;
+}
+
 .chats-search input::placeholder {
   color: #94a3b8;
 }
@@ -75,11 +84,28 @@
 
 .groups-list {
   flex: 1;
+  min-height: 0;
   display: grid;
   align-content: start;
   gap: 10px;
   overflow-y: auto;
   padding-right: 4px;
+  overscroll-behavior: contain;
+}
+
+.groups-list::-webkit-scrollbar,
+.sidebar-actions::-webkit-scrollbar,
+.chat-details::-webkit-scrollbar,
+.messages-area::-webkit-scrollbar {
+  width: 7px;
+}
+
+.groups-list::-webkit-scrollbar-thumb,
+.sidebar-actions::-webkit-scrollbar-thumb,
+.chat-details::-webkit-scrollbar-thumb,
+.messages-area::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.42);
 }
 
 .group-chat-card {
@@ -162,7 +188,46 @@
 
 .new-group-form {
   display: grid;
-  gap: 10px;
+  gap: 9px;
+}
+
+.sidebar-actions {
+  flex: 0 0 auto;
+  max-height: min(38svh, 330px);
+  display: grid;
+  gap: 14px;
+  overflow-y: auto;
+  padding: 14px 4px 0 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  overscroll-behavior: contain;
+}
+
+.chats-sidebar .section-label {
+  margin-bottom: 0;
+  color: #93c5fd;
+}
+
+.sidebar-inline-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.sidebar-inline-form button {
+  min-width: 72px;
+  border: 0;
+  border-radius: 14px;
+  background: #2457d6;
+  color: white;
+  font-weight: 900;
+}
+
+.sidebar-results {
+  display: grid;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding-right: 3px;
 }
 
 .new-group-form input,
@@ -187,7 +252,7 @@
 }
 
 .new-group-button {
-  min-height: 48px;
+  min-height: 44px;
   border: 0;
   border-radius: 16px;
   background: #2457d6;
@@ -196,7 +261,13 @@
   box-shadow: 0 14px 34px rgba(36, 87, 214, 0.34);
 }
 
+.new-group-button.secondary {
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: none;
+}
+
 .back-dashboard-button {
+  flex: 0 0 auto;
   min-height: 44px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 14px;
@@ -210,10 +281,12 @@
 }
 
 .chat-main {
-  min-height: 100svh;
+  height: 100svh;
+  min-height: 0;
   display: grid;
   grid-template-rows: auto auto 1fr auto;
   padding: 28px;
+  overflow: hidden;
 }
 
 .chat-header {
@@ -273,11 +346,13 @@
 }
 
 .messages-area {
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding: 26px 6px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .empty-chat-text {
@@ -455,11 +530,14 @@
 }
 
 .chat-details {
-  min-height: 100svh;
+  height: 100svh;
+  min-height: 0;
   padding: 28px 24px 28px 0;
   display: grid;
   align-content: start;
   gap: 18px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .details-card {
@@ -693,16 +771,29 @@
 
 @media (max-width: 780px) {
   .chats-page {
+    height: auto;
+    min-height: 100svh;
     grid-template-columns: 1fr;
+    overflow: visible;
   }
 
   .chats-sidebar {
+    height: auto;
     min-height: auto;
+    overflow: visible;
+  }
+
+  .groups-list,
+  .sidebar-actions {
+    max-height: none;
+    overflow: visible;
   }
 
   .chat-main {
+    height: auto;
     min-height: 80svh;
     padding: 20px;
+    overflow: visible;
   }
 
   .chat-header {
