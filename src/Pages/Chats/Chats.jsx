@@ -5,44 +5,48 @@ import {
   decryptGroupMessages,
   deriveGroupAesKey,
   joinGroupWithCode,
+  loadBlockchain,
   loadGroupMessages,
   loadUserGroups,
   searchGroupsByName,
   sendGroupMessage,
+  tamperBlockchainBlock,
+  verifyBlockchainIntegrity,
 } from '../../services/messageService'
 import { decryptPrivateKey } from '../../utils/privateKeyEncryption'
 import './Chats.css'
 
-const cryptoFlowSteps = [
-  'El creador genera un código de 8 caracteres.',
-  'El servidor valida el código con SHA-256 y solo muestra el código al creador.',
-  'El cliente deriva AES-256 del código + groupId con PBKDF2 (100k iter).',
-  'Cada mensaje se cifra con AES-256-GCM y un nonce único de 12 bytes.',
-  'Solo el ciphertext, nonce y auth_tag se almacenan en Supabase.',
-  'Cualquier miembro con el código puede derivar la clave y descifrar.',
-]
-
 function Chats() {
   const navigate = useNavigate()
+
   const [groups, setGroups] = useState([])
   const [selectedGroupId, setSelectedGroupId] = useState('')
   const [messages, setMessages] = useState([])
   const [messageText, setMessageText] = useState('')
+
   const [myGroupsFilter, setMyGroupsFilter] = useState('')
   const [newGroupName, setNewGroupName] = useState('')
   const [codeInput, setCodeInput] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [createdGroupCode, setCreatedGroupCode] = useState('')
+
   const [status, setStatus] = useState({ type: 'idle', message: '' })
   const [loading, setLoading] = useState(false)
+
   const [lastEncryptedPayload, setLastEncryptedPayload] = useState(null)
   const [selectedMessage, setSelectedMessage] = useState(null)
+
+  const [blockchainBlocks, setBlockchainBlocks] = useState([])
+  const [blockchainVerification, setBlockchainVerification] = useState(null)
+  const [blockchainLoading, setBlockchainLoading] = useState(false)
+
   const [signatureKeyForm, setSignatureKeyForm] = useState({
     encrypted_key_json: '',
     password: '',
   })
   const [signaturePrivateKeyPem, setSignaturePrivateKeyPem] = useState('')
+
   const groupKeysRef = useRef({})
   const [unlockedGroupIds, setUnlockedGroupIds] = useState(new Set())
 
@@ -52,19 +56,20 @@ function Chats() {
   }, [])
 
   const selectedGroup = useMemo(
-    () => groups.find((g) => g.id === selectedGroupId),
+    () => groups.find((group) => group.id === selectedGroupId),
     [groups, selectedGroupId],
   )
 
   const filteredGroups = useMemo(
     () =>
-      groups.filter((g) =>
-        g.name.toLowerCase().includes(myGroupsFilter.toLowerCase()),
+      groups.filter((group) =>
+        group.name.toLowerCase().includes(myGroupsFilter.toLowerCase()),
       ),
     [groups, myGroupsFilter],
   )
 
   const isUnlocked = unlockedGroupIds.has(selectedGroupId)
+
   const selectedGroupInviteCode =
     selectedGroup?.invite_code ||
     (selectedGroup?.created_by === currentUser?.id ? createdGroupCode : '')
@@ -75,11 +80,30 @@ function Chats() {
 
   const refreshGroups = useCallback(async () => {
     try {
-      const loaded = await loadUserGroups()
-      setGroups(loaded)
-      setSelectedGroupId((prev) => prev || loaded[0]?.id || '')
+      const loadedGroups = await loadUserGroups()
+
+      setGroups(loadedGroups)
+      setSelectedGroupId((currentGroupId) => currentGroupId || loadedGroups[0]?.id || '')
     } catch (error) {
       showStatus('error', error.message)
+    }
+  }, [])
+
+  const refreshBlockchain = useCallback(async () => {
+    setBlockchainLoading(true)
+
+    try {
+      const [blocks, verification] = await Promise.all([
+        loadBlockchain(),
+        verifyBlockchainIntegrity(),
+      ])
+
+      setBlockchainBlocks(blocks)
+      setBlockchainVerification(verification)
+    } catch (error) {
+      showStatus('error', error.message)
+    } finally {
+      setBlockchainLoading(false)
     }
   }, [])
 
@@ -88,6 +112,12 @@ function Chats() {
       refreshGroups()
     })
   }, [refreshGroups])
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      refreshBlockchain()
+    })
+  }, [refreshBlockchain])
 
   useEffect(() => {
     if (!currentUser?.id || groups.length === 0) return
@@ -129,20 +159,22 @@ function Chats() {
     }
   }, [groups, currentUser?.id])
 
-  // Load and decrypt messages whenever the selected group becomes unlocked
   useEffect(() => {
     if (!selectedGroupId || !isUnlocked) return
 
     let cancelled = false
-    async function load() {
+
+    async function loadMessages() {
       setLoading(true)
       showStatus('loading', 'Cargando mensajes...')
+
       try {
-        const raw = await loadGroupMessages(selectedGroupId)
-        const key = groupKeysRef.current[selectedGroupId]
-        const decrypted = await decryptGroupMessages(raw, key)
+        const rawMessages = await loadGroupMessages(selectedGroupId)
+        const groupKey = groupKeysRef.current[selectedGroupId]
+        const decryptedMessages = await decryptGroupMessages(rawMessages, groupKey)
+
         if (!cancelled) {
-          setMessages(decrypted)
+          setMessages(decryptedMessages)
           showStatus('success', 'Mensajes cargados.')
         }
       } catch (error) {
@@ -152,7 +184,8 @@ function Chats() {
       }
     }
 
-    load()
+    loadMessages()
+
     return () => {
       cancelled = true
     }
@@ -169,26 +202,32 @@ function Chats() {
 
   async function handleCreateGroup(event) {
     event.preventDefault()
-    if (!newGroupName.trim()) return
+
+    const cleanGroupName = newGroupName.trim()
+    if (!cleanGroupName) return
 
     setLoading(true)
     showStatus('loading', 'Creando grupo...')
+
     try {
-      const data = await createGroup(newGroupName.trim())
+      const data = await createGroup(cleanGroupName)
       const group = data.group || data
       const code = data.code
       const groupWithCode = code ? { ...group, invite_code: code } : group
 
-      setGroups((prev) => [groupWithCode, ...prev])
+      setGroups((currentGroups) => [groupWithCode, ...currentGroups])
       setNewGroupName('')
 
       if (code) {
         setCreatedGroupCode(code)
+
         const aesKey = await deriveGroupAesKey(code, group.id)
         groupKeysRef.current[group.id] = aesKey
-        setUnlockedGroupIds((prev) => new Set([...prev, group.id]))
+
+        setUnlockedGroupIds((current) => new Set([...current, group.id]))
         setSelectedGroupId(group.id)
-        showStatus('success', `Grupo creado. Comparte el código con los miembros.`)
+
+        showStatus('success', 'Grupo creado. Comparte el código con los miembros.')
       }
     } catch (error) {
       showStatus('error', error.message)
@@ -199,13 +238,20 @@ function Chats() {
 
   async function handleSearch(event) {
     event.preventDefault()
-    if (!searchQuery.trim()) return
+
+    const cleanSearch = searchQuery.trim()
+    if (!cleanSearch) return
 
     setLoading(true)
+
     try {
-      const results = await searchGroupsByName(searchQuery.trim())
+      const results = await searchGroupsByName(cleanSearch)
+
       setSearchResults(results)
-      if (results.length === 0) showStatus('idle', 'No se encontraron grupos con ese nombre.')
+
+      if (results.length === 0) {
+        showStatus('idle', 'No se encontraron grupos con ese nombre.')
+      }
     } catch (error) {
       showStatus('error', error.message)
     } finally {
@@ -222,24 +268,33 @@ function Chats() {
     setCreatedGroupCode('')
     setSearchResults([])
     setSearchQuery('')
-    if (!groups.find((g) => g.id === group.id)) {
-      setGroups((prev) => [group, ...prev])
+
+    if (!groups.find((currentGroup) => currentGroup.id === group.id)) {
+      setGroups((currentGroups) => [group, ...currentGroups])
     }
   }
 
   async function handleJoinOrUnlock(event) {
     event.preventDefault()
-    if (!codeInput.trim() || !selectedGroupId) return
+
+    const cleanCode = codeInput.trim()
+
+    if (!cleanCode || !selectedGroupId) return
 
     setLoading(true)
     showStatus('loading', 'Verificando código...')
+
     try {
-      await joinGroupWithCode(selectedGroupId, codeInput.trim())
-      const aesKey = await deriveGroupAesKey(codeInput.trim(), selectedGroupId)
+      await joinGroupWithCode(selectedGroupId, cleanCode)
+
+      const aesKey = await deriveGroupAesKey(cleanCode, selectedGroupId)
       groupKeysRef.current[selectedGroupId] = aesKey
-      setUnlockedGroupIds((prev) => new Set([...prev, selectedGroupId]))
+
+      setUnlockedGroupIds((current) => new Set([...current, selectedGroupId]))
       setCodeInput('')
+
       await refreshGroups()
+
       showStatus('success', 'Grupo desbloqueado.')
     } catch (error) {
       showStatus('error', error.message)
@@ -250,10 +305,13 @@ function Chats() {
 
   async function handleSendMessage(event) {
     event.preventDefault()
+
     const cleanMessage = messageText.trim()
+
     if (!cleanMessage || !selectedGroupId) return
 
     const aesKey = groupKeysRef.current[selectedGroupId]
+
     if (!aesKey) {
       showStatus('error', 'Ingresa el código del grupo primero.')
       return
@@ -266,6 +324,7 @@ function Chats() {
 
     setLoading(true)
     showStatus('loading', 'Cifrando mensaje...')
+
     try {
       const sentMessage = await sendGroupMessage(
         selectedGroupId,
@@ -273,16 +332,42 @@ function Chats() {
         aesKey,
         signaturePrivateKeyPem,
       )
-      const [decrypted] = await decryptGroupMessages([sentMessage], aesKey)
-      setMessages((prev) => [...prev, decrypted])
+
+      const [decryptedMessage] = await decryptGroupMessages([sentMessage], aesKey)
+
+      setMessages((currentMessages) => [...currentMessages, decryptedMessage])
       setLastEncryptedPayload(sentMessage)
-      setSelectedMessage(decrypted)
+      setSelectedMessage(decryptedMessage)
       setMessageText('')
-      showStatus('success', 'Mensaje cifrado y enviado.')
+
+      await refreshBlockchain()
+
+      showStatus('success', 'Mensaje cifrado, enviado y registrado en blockchain.')
     } catch (error) {
       showStatus('error', error.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleTamperBlock(blockIndex) {
+    setBlockchainLoading(true)
+    showStatus('loading', `Modificando bloque #${blockIndex} para demo...`)
+
+    try {
+      const result = await tamperBlockchainBlock(blockIndex)
+
+      setBlockchainVerification(result.verification)
+      await refreshBlockchain()
+
+      showStatus(
+        'success',
+        `Bloque #${blockIndex} modificado. La cadena ahora debe aparecer como invalida.`,
+      )
+    } catch (error) {
+      showStatus('error', error.message)
+    } finally {
+      setBlockchainLoading(false)
     }
   }
 
@@ -293,10 +378,12 @@ function Chats() {
     try {
       const content = await file.text()
       JSON.parse(content)
+
       setSignatureKeyForm((current) => ({
         ...current,
         encrypted_key_json: content,
       }))
+
       showStatus('success', 'Archivo de firma cargado.')
     } catch {
       showStatus('error', 'El archivo de llave privada no tiene JSON valido.')
@@ -314,7 +401,11 @@ function Chats() {
       )
 
       setSignaturePrivateKeyPem(privateKeyPem)
-      setSignatureKeyForm((current) => ({ ...current, password: '' }))
+      setSignatureKeyForm((current) => ({
+        ...current,
+        password: '',
+      }))
+
       showStatus('success', 'Llave de firma lista. Los mensajes saldran firmados.')
     } catch {
       showStatus('error', 'No se pudo desbloquear la llave para firmar.')
@@ -326,6 +417,7 @@ function Chats() {
       <aside className="chats-sidebar">
         <div className="chats-brand">
           <div className="chats-logo">B</div>
+
           <div>
             <strong>Blu</strong>
             <span>Chats grupales</span>
@@ -345,7 +437,7 @@ function Chats() {
             type="text"
             placeholder="Filtrar mis grupos..."
             value={myGroupsFilter}
-            onChange={(e) => setMyGroupsFilter(e.target.value)}
+            onChange={(event) => setMyGroupsFilter(event.target.value)}
           />
         </div>
 
@@ -356,17 +448,24 @@ function Chats() {
             filteredGroups.map((group) => (
               <button
                 key={group.id}
-                className={`group-chat-card ${selectedGroupId === group.id ? 'active' : ''}`}
+                className={`group-chat-card ${
+                  selectedGroupId === group.id ? 'active' : ''
+                }`}
                 onClick={() => handleSelectGroup(group.id)}
               >
-                <div className="group-icon">{group.name.charAt(0).toUpperCase()}</div>
+                <div className="group-icon">
+                  {group.name.charAt(0).toUpperCase()}
+                </div>
+
                 <div className="group-info">
                   <div className="group-title-row">
                     <strong>{group.name}</strong>
+
                     {!unlockedGroupIds.has(group.id) && (
-                      <span style={{ fontSize: '0.75rem', opacity: 0.6 }}>🔒</span>
+                      <span className="locked-pill">Bloqueado</span>
                     )}
                   </div>
+
                   <span>{group.description}</span>
                 </div>
               </button>
@@ -377,16 +476,19 @@ function Chats() {
         <div className="sidebar-actions">
           <form className="new-group-form" onSubmit={handleSearch}>
             <p className="section-label">Buscar grupo</p>
+
             <div className="sidebar-inline-form">
               <input
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder="Nombre del grupo..."
               />
+
               <button type="submit" disabled={loading}>
                 Buscar
               </button>
             </div>
+
             {searchResults.length > 0 && (
               <div className="sidebar-results">
                 {searchResults.map((result) => (
@@ -396,10 +498,15 @@ function Chats() {
                     className="group-chat-card"
                     onClick={() => handleSelectSearchResult(result)}
                   >
-                    <div className="group-icon">{result.name.charAt(0).toUpperCase()}</div>
+                    <div className="group-icon">
+                      {result.name.charAt(0).toUpperCase()}
+                    </div>
+
                     <div className="group-info">
                       <strong>{result.name}</strong>
-                      <span>{result.is_member ? 'Ya eres miembro' : 'Unete con codigo'}</span>
+                      <span>
+                        {result.is_member ? 'Ya eres miembro' : 'Unete con codigo'}
+                      </span>
                     </div>
                   </button>
                 ))}
@@ -409,12 +516,14 @@ function Chats() {
 
           <form className="new-group-form" onSubmit={handleCreateGroup}>
             <p className="section-label">Crear grupo</p>
+
             <input
               value={newGroupName}
-              onChange={(e) => setNewGroupName(e.target.value)}
+              onChange={(event) => setNewGroupName(event.target.value)}
               placeholder="Nombre del grupo"
               required
             />
+
             <button className="new-group-button" disabled={loading}>
               Crear canal
             </button>
@@ -423,12 +532,16 @@ function Chats() {
       </aside>
 
       <section className="chat-main">
-        <header className="chat-header">
+        <header className="chat-header cool-chat-header">
           <div>
             <p className="section-label">Chat activo</p>
             <h1>{selectedGroup?.name || 'Grupo'}</h1>
-            <span>{selectedGroup?.description}</span>
+            <span>
+              {selectedGroup?.description ||
+                'Selecciona un grupo para empezar a conversar.'}
+            </span>
           </div>
+
           <div className="chat-status">
             <span className="status-dot"></span>
             {isUnlocked ? 'Descifrado activo' : 'Ingresa el código'}
@@ -436,57 +549,77 @@ function Chats() {
         </header>
 
         {status.message && (
-          <p className={`chat-status-message ${status.type}`}>{status.message}</p>
+          <p className={`chat-status-message ${status.type}`}>
+            {status.message}
+          </p>
         )}
 
         {!selectedGroupId ? (
-          <div className="messages-area" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <p className="empty-chat-text">Selecciona un grupo o únete a uno nuevo con su código.</p>
+          <div className="messages-area empty-chat-panel">
+            <div className="empty-chat-card">
+              <span>💬</span>
+              <h2>Selecciona un grupo</h2>
+              <p>Elige un chat de la izquierda o crea uno nuevo para iniciar.</p>
+            </div>
           </div>
         ) : !isUnlocked ? (
-          <div className="messages-area" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <form
-              onSubmit={handleJoinOrUnlock}
-              style={{ textAlign: 'center', maxWidth: '320px', width: '100%' }}
-            >
-              <p style={{ marginBottom: '1rem', fontWeight: 600 }}>
-                🔐 Ingresa el código del grupo
+          <div className="messages-area empty-chat-panel">
+            <form className="unlock-group-card" onSubmit={handleJoinOrUnlock}>
+              <span>🔐</span>
+              <h2>Grupo protegido</h2>
+              <p>
+                Ingresa el código de 8 caracteres que compartió el creador del grupo.
               </p>
-              <p style={{ marginBottom: '1.5rem', opacity: 0.7, fontSize: '0.9rem' }}>
-                El creador del grupo debe compartirte el código de 8 caracteres.
-              </p>
+
               <input
                 type="text"
                 value={codeInput}
-                onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
-                placeholder="Ej: ABCD5678"
+                onChange={(event) => setCodeInput(event.target.value.toUpperCase())}
+                placeholder="ABCD5678"
                 maxLength={8}
-                style={{ width: '100%', marginBottom: '1rem', textAlign: 'center', letterSpacing: '0.2em', fontSize: '1.2rem' }}
                 required
               />
-              <button type="submit" disabled={loading} style={{ width: '100%' }}>
-                {loading ? 'Verificando...' : 'Desbloquear / Unirse'}
+
+              <button type="submit" disabled={loading}>
+                {loading ? 'Verificando...' : 'Desbloquear grupo'}
               </button>
             </form>
           </div>
         ) : (
           <section className="messages-area">
             {messages.length === 0 ? (
-              <p className="empty-chat-text">No hay mensajes. ¡Envía el primero!</p>
+              <div className="empty-chat-card">
+                <span>✨</span>
+                <h2>No hay mensajes</h2>
+                <p>Envía el primero y se registrará en la mini blockchain.</p>
+              </div>
             ) : (
               messages.map((message) => (
                 <article
                   key={message.id}
-                  className={`message-bubble ${message.sender_id === currentUser?.id ? 'own' : ''}`}
+                  className={`message-bubble ${
+                    message.sender_id === currentUser?.id ? 'own' : ''
+                  }`}
                   onClick={() => setSelectedMessage(message)}
                 >
                   <div className="message-meta">
-                    <strong>{message.sender_id === currentUser?.id ? 'Tú' : 'Miembro'}</strong>
+                    <strong>
+                      {message.sender_id === currentUser?.id ? 'Tú' : 'Miembro'}
+                    </strong>
                     <span>{formatMessageTime(message.created_at)}</span>
                   </div>
+
                   <p>{message.plaintext || message.decrypt_error || '...'}</p>
-                  <SignatureStatus status={message.signature_status} />
-                  <small>{message.ciphertext_base64 ? 'AES-256-GCM' : ''}</small>
+
+                  <div className="message-tags">
+                    <SignatureStatus status={message.signature_status} />
+                    {message.ciphertext_base64 && (
+                      <small>AES-256-GCM</small>
+                    )}
+                    {message.plaintext_hash && (
+                      <small>SHA-256</small>
+                    )}
+                  </div>
                 </article>
               ))
             )}
@@ -499,8 +632,9 @@ function Chats() {
               type="text"
               placeholder="Escribe un mensaje..."
               value={messageText}
-              onChange={(e) => setMessageText(e.target.value)}
+              onChange={(event) => setMessageText(event.target.value)}
             />
+
             <button type="submit" disabled={loading || !selectedGroupId}>
               {loading ? 'Enviando' : 'Enviar'}
             </button>
@@ -509,42 +643,141 @@ function Chats() {
       </section>
 
       <aside className="chat-details">
-        <div className="details-card">
+        <div className="details-card group-summary-card">
           <div className="details-avatar">
             {selectedGroup?.name?.charAt(0).toUpperCase() || 'G'}
           </div>
+
           <h2>{selectedGroup?.name || 'Sin grupo'}</h2>
-          <p>{selectedGroup?.description}</p>
+          <p>{selectedGroup?.description || 'Selecciona un grupo para ver detalles.'}</p>
         </div>
 
         {selectedGroupInviteCode && (
-          <div className="details-card" style={{ background: 'var(--color-accent, #3b82f6)', color: '#fff' }}>
-            <p className="section-label" style={{ color: 'rgba(255,255,255,0.8)' }}>Código del grupo</p>
-            <p style={{ fontSize: '1.8rem', fontWeight: 700, letterSpacing: '0.3em', margin: '0.5rem 0' }}>
+          <div className="details-card invite-code-card">
+            <p className="section-label">Código del grupo</p>
+
+            <p className="invite-code-text">
               {selectedGroupInviteCode}
             </p>
-            <p style={{ fontSize: '0.8rem', opacity: 0.85 }}>
+
+            <p>
               Comparte este código con quienes quieras invitar.
             </p>
           </div>
         )}
 
+        <div className="details-card blockchain-card">
+          <div className="blockchain-header">
+            <div>
+              <p className="section-label">Mini Blockchain</p>
+              <h3>Bloques registrados</h3>
+            </div>
+
+            <button
+              type="button"
+              className="blockchain-refresh-button"
+              onClick={refreshBlockchain}
+              disabled={blockchainLoading}
+            >
+              {blockchainLoading ? 'Cargando' : 'Actualizar'}
+            </button>
+          </div>
+
+          {blockchainVerification && (
+            <div
+              className={`blockchain-status ${
+                blockchainVerification.valid ? 'valid' : 'invalid'
+              }`}
+            >
+              {blockchainVerification.valid
+                ? `Cadena valida (${blockchainVerification.blocks || blockchainBlocks.length} bloques)`
+                : `Cadena invalida en bloque #${blockchainVerification.invalid_index}`}
+            </div>
+          )}
+
+          <div className="blockchain-list">
+            {blockchainBlocks.length === 0 ? (
+              <p className="empty-text">Aun no hay bloques registrados.</p>
+            ) : (
+              blockchainBlocks.map((block) => (
+                <article
+                  key={block.id || block.index}
+                  className={`blockchain-block ${
+                    blockchainVerification?.invalid_index === block.index
+                      ? 'invalid'
+                      : ''
+                  }`}
+                >
+                  <div className="blockchain-block-title">
+                    <strong>Bloque #{block.index}</strong>
+                    <span>{block.index === 0 ? 'Genesis' : 'Mensaje'}</span>
+                  </div>
+
+                  <div className="blockchain-row">
+                    <span>Mensaje</span>
+                    <code>{block.message_id || 'GENESIS'}</code>
+                  </div>
+
+                  <div className="blockchain-row">
+                    <span>Hash mensaje</span>
+                    <code>{shortHash(block.message_hash)}</code>
+                  </div>
+
+                  <div className="blockchain-row">
+                    <span>Hash anterior</span>
+                    <code>{shortHash(block.previous_hash)}</code>
+                  </div>
+
+                  <div className="blockchain-row">
+                    <span>Hash bloque</span>
+                    <code>{shortHash(block.hash)}</code>
+                  </div>
+
+                  <div className="blockchain-row">
+                    <span>Nonce</span>
+                    <code>{block.nonce}</code>
+                  </div>
+
+                  {block.index !== 0 && (
+                    <button
+                      type="button"
+                      className="tamper-block-button"
+                      onClick={() => handleTamperBlock(block.index)}
+                      disabled={blockchainLoading}
+                    >
+                      Modificar bloque
+                    </button>
+                  )}
+                </article>
+              ))
+            )}
+          </div>
+        </div>
+
         <div className="details-card">
           <p className="section-label">Miembros</p>
+
           <div className="members-list">
-            {selectedGroup?.members?.map((member) => (
-              <div className="member-item" key={member.user_id || member}>
-                <span>{(member.name || member).charAt(0).toUpperCase()}</span>
-                <strong>{member.name || member}</strong>
-              </div>
-            ))}
+            {selectedGroup?.members?.length ? (
+              selectedGroup.members.map((member) => (
+                <div className="member-item" key={member.user_id || member}>
+                  <span>{(member.name || member).charAt(0).toUpperCase()}</span>
+                  <strong>{member.name || member}</strong>
+                </div>
+              ))
+            ) : (
+              <p className="empty-text">Sin miembros cargados.</p>
+            )}
           </div>
         </div>
 
         <div className="details-card">
           <p className="section-label">Firma digital</p>
+
           {signaturePrivateKeyPem ? (
-            <p className="verified-copy">Llave lista. Tus mensajes se firman con RSA-PSS.</p>
+            <p className="verified-copy">
+              Llave lista. Tus mensajes se firman con RSA-PSS.
+            </p>
           ) : (
             <form className="key-card" onSubmit={handleUnlockSignatureKey}>
               <input
@@ -553,6 +786,7 @@ function Chats() {
                 onChange={handleSignatureKeyFileChange}
                 required={!signatureKeyForm.encrypted_key_json}
               />
+
               <input
                 type="password"
                 value={signatureKeyForm.password}
@@ -565,6 +799,7 @@ function Chats() {
                 placeholder="Contrasena"
                 required
               />
+
               <button disabled={loading || !signatureKeyForm.encrypted_key_json}>
                 Activar firma
               </button>
@@ -573,19 +808,39 @@ function Chats() {
         </div>
 
         <div className="details-card">
-          <p className="section-label">Seguridad</p>
-          <div className="security-list">
-            {cryptoFlowSteps.map((step, index) => (
-              <span key={step}>{index + 1}. {step}</span>
-            ))}
-          </div>
-        </div>
-
-        <div className="details-card">
           <p className="section-label">Objeto almacenado</p>
-          <PreviewValue label="Ciphertext" value={selectedMessage?.ciphertext_base64 || lastEncryptedPayload?.ciphertext_base64} />
-          <PreviewValue label="Nonce" value={selectedMessage?.nonce_base64 || lastEncryptedPayload?.nonce_base64} />
-          <PreviewValue label="Auth tag" value={selectedMessage?.auth_tag_base64 || lastEncryptedPayload?.auth_tag_base64} />
+
+          <PreviewValue
+            label="Ciphertext"
+            value={
+              selectedMessage?.ciphertext_base64 ||
+              lastEncryptedPayload?.ciphertext_base64
+            }
+          />
+
+          <PreviewValue
+            label="Nonce"
+            value={
+              selectedMessage?.nonce_base64 ||
+              lastEncryptedPayload?.nonce_base64
+            }
+          />
+
+          <PreviewValue
+            label="Auth tag"
+            value={
+              selectedMessage?.auth_tag_base64 ||
+              lastEncryptedPayload?.auth_tag_base64
+            }
+          />
+
+          <PreviewValue
+            label="Plaintext hash"
+            value={
+              selectedMessage?.plaintext_hash ||
+              lastEncryptedPayload?.plaintext_hash
+            }
+          />
         </div>
       </aside>
     </main>
@@ -594,6 +849,7 @@ function Chats() {
 
 function formatMessageTime(timestamp) {
   if (!timestamp) return 'Ahora'
+
   return new Date(timestamp).toLocaleTimeString('es-GT', {
     hour: '2-digit',
     minute: '2-digit',
@@ -625,6 +881,16 @@ function SignatureStatus({ status }) {
       {labelByStatus[status] || 'Firma pendiente'}
     </span>
   )
+}
+
+function shortHash(value) {
+  if (!value) return 'N/A'
+
+  const cleanValue = String(value)
+
+  if (cleanValue.length <= 22) return cleanValue
+
+  return `${cleanValue.slice(0, 10)}...${cleanValue.slice(-8)}`
 }
 
 export default Chats

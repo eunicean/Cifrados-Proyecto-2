@@ -25,14 +25,18 @@ export function stableStringify(value) {
     .join(',')}}`
 }
 
-export function calculateBlockHash(block) {
-  const data = stableStringify({
+export function normalizeTransactionData(block) {
+  return {
     message_id: block.message_id || null,
     sender_id: block.sender_id || null,
     recipient_id: block.recipient_id || null,
     group_id: block.group_id || null,
     message_hash: block.message_hash,
-  })
+  }
+}
+
+export function calculateBlockHash(block) {
+  const data = stableStringify(normalizeTransactionData(block))
 
   return sha256Hex(
     `${block.index}${block.timestamp}${data}${block.previous_hash}${block.nonce}`,
@@ -40,6 +44,10 @@ export function calculateBlockHash(block) {
 }
 
 export function mineBlock(blockData, difficulty = DEFAULT_DIFFICULTY) {
+  if (!Number.isInteger(difficulty) || difficulty < 0) {
+    throw new Error('La dificultad del bloque no es valida.')
+  }
+
   const prefix = '0'.repeat(difficulty)
   let nonce = 0
 
@@ -82,6 +90,10 @@ export function createNextBlock(previousBlock, transactionData) {
     throw new Error('Se requiere el bloque anterior.')
   }
 
+  if (!transactionData?.message_hash) {
+    throw new Error('La transaccion necesita message_hash.')
+  }
+
   const timestamp = new Date().toISOString()
 
   return mineBlock({
@@ -102,6 +114,7 @@ export function verifyBlockchain(chain) {
       valid: false,
       error: 'La cadena esta vacia.',
       invalid_index: null,
+      blocks: 0,
     }
   }
 
@@ -112,6 +125,7 @@ export function verifyBlockchain(chain) {
       valid: false,
       error: 'El bloque genesis debe tener indice 0.',
       invalid_index: genesisBlock.index,
+      blocks: chain.length,
     }
   }
 
@@ -120,6 +134,7 @@ export function verifyBlockchain(chain) {
       valid: false,
       error: 'El bloque genesis tiene previous_hash invalido.',
       invalid_index: genesisBlock.index,
+      blocks: chain.length,
     }
   }
 
@@ -132,17 +147,28 @@ export function verifyBlockchain(chain) {
         valid: false,
         error: 'El hash del bloque no coincide con su contenido.',
         invalid_index: currentBlock.index,
+        blocks: chain.length,
       }
     }
 
     if (i > 0) {
       const previousBlock = chain[i - 1]
 
+      if (currentBlock.index !== previousBlock.index + 1) {
+        return {
+          valid: false,
+          error: 'El indice del bloque no es consecutivo.',
+          invalid_index: currentBlock.index,
+          blocks: chain.length,
+        }
+      }
+
       if (currentBlock.previous_hash !== previousBlock.hash) {
         return {
           valid: false,
           error: 'El bloque no apunta correctamente al bloque anterior.',
           invalid_index: currentBlock.index,
+          blocks: chain.length,
         }
       }
     }

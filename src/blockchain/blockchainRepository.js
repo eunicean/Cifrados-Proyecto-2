@@ -7,12 +7,16 @@ function loadLocalEnv() {
   if (!fs.existsSync('.env')) return
 
   const lines = fs.readFileSync('.env', 'utf8').split('\n')
+
   lines.forEach((line) => {
     const trimmed = line.trim()
+
     if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) return
 
     const [key, ...valueParts] = trimmed.split('=')
+
     if (process.env[key]) return
+
     process.env[key] = valueParts.join('=').replace(/^["']|["']$/g, '')
   })
 }
@@ -20,6 +24,7 @@ function loadLocalEnv() {
 loadLocalEnv()
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+
 const supabaseKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.SUPABASE_ANON_KEY ||
@@ -73,7 +78,7 @@ export async function getBlockchain() {
     throw new Error(error.message)
   }
 
-  return data.map(mapDbBlockToDomain)
+  return (data || []).map(mapDbBlockToDomain)
 }
 
 export async function getLastBlock() {
@@ -91,10 +96,39 @@ export async function getLastBlock() {
   return data ? mapDbBlockToDomain(data) : null
 }
 
+export async function getBlockByIndex(blockIndex) {
+  const { data, error } = await supabase
+    .from(BLOCKCHAIN_TABLE)
+    .select('*')
+    .eq('block_index', blockIndex)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return data ? mapDbBlockToDomain(data) : null
+}
+
 export async function saveBlock(block) {
   const { data, error } = await supabase
     .from(BLOCKCHAIN_TABLE)
     .insert(mapDomainBlockToDb(block))
+    .select('*')
+    .single()
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return mapDbBlockToDomain(data)
+}
+
+export async function updateBlockForDemo(blockIndex, changes) {
+  const { data, error } = await supabase
+    .from(BLOCKCHAIN_TABLE)
+    .update(changes)
+    .eq('block_index', blockIndex)
     .select('*')
     .single()
 

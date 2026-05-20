@@ -7,6 +7,7 @@ import { loginUser } from './src/auth/loginUser.js'
 import {
   getFullBlockchain,
   registerMessageTransaction,
+  tamperBlockForDemo,
   verifyFullBlockchain,
 } from './src/blockchain/blockchainService.js'
 import { verifyJwt } from './src/utils/jwt.js'
@@ -15,12 +16,16 @@ function loadLocalEnv() {
   if (!fs.existsSync('.env')) return
 
   const lines = fs.readFileSync('.env', 'utf8').split('\n')
+
   lines.forEach((line) => {
     const trimmed = line.trim()
+
     if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) return
 
     const [key, ...valueParts] = trimmed.split('=')
+
     if (process.env[key]) return
+
     process.env[key] = valueParts.join('=').replace(/^["']|["']$/g, '')
   })
 }
@@ -56,6 +61,7 @@ function shortValue(value) {
 }
 
 app.use(express.json({ limit: '1mb' }))
+
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', process.env.CLIENT_ORIGIN || '*')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
@@ -72,7 +78,8 @@ app.use((req, res, next) => {
 function generateGroupCode(length = 8) {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   const bytes = crypto.randomBytes(length)
-  return Array.from(bytes, (b) => chars[b % chars.length]).join('')
+
+  return Array.from(bytes, (byte) => chars[byte % chars.length]).join('')
 }
 
 function hashCode(code) {
@@ -84,14 +91,19 @@ function sendError(res, error, status = 400) {
     status,
     message: error.message || 'Ocurrio un error.',
   })
-  res.status(status).json({ message: error.message || 'Ocurrio un error.' })
+
+  res.status(status).json({
+    message: error.message || 'Ocurrio un error.',
+  })
 }
 
 function requireAuth(req, res, next) {
   try {
     const header = req.headers.authorization || ''
     const token = header.startsWith('Bearer ') ? header.slice(7) : ''
+
     req.auth = verifyJwt(token, jwtSecret)
+
     next()
   } catch (error) {
     sendError(res, error, 401)
@@ -113,7 +125,11 @@ async function ensureChannelMember(channelId, userId) {
 
   if (error) throw new Error(error.message)
   if (!data) throw new Error('No perteneces a este chat.')
-  logInfo('authz', 'Membresia confirmada', { channelId, userId })
+
+  logInfo('authz', 'Membresia confirmada', {
+    channelId,
+    userId,
+  })
 }
 
 function buildDirectChannelName(userId, recipientId) {
@@ -156,6 +172,7 @@ app.post('/auth/register', async (req, res) => {
     if (!publicKey) throw new Error('Falta la llave publica RSA del usuario.')
 
     const passwordHash = await hashPassword(password)
+
     logInfo('auth', 'Registrando usuario con llave publica', {
       email,
       hasPublicKey: Boolean(publicKey),
@@ -173,12 +190,21 @@ app.post('/auth/register', async (req, res) => {
       .single()
 
     if (error) {
-      if (error.code === '23505') throw new Error('Ese correo ya esta registrado.')
+      if (error.code === '23505') {
+        throw new Error('Ese correo ya esta registrado.')
+      }
+
       throw new Error(error.message)
     }
 
-    logInfo('auth', 'Usuario registrado', { userId: data.id, email: data.email })
-    res.status(201).json({ user: data })
+    logInfo('auth', 'Usuario registrado', {
+      userId: data.id,
+      email: data.email,
+    })
+
+    res.status(201).json({
+      user: data,
+    })
   } catch (error) {
     sendError(res, error)
   }
@@ -197,6 +223,7 @@ app.post('/auth/login', async (req, res) => {
           .maybeSingle()
 
         if (error) throw new Error(error.message)
+
         return data
       },
     })
@@ -205,6 +232,7 @@ app.post('/auth/login', async (req, res) => {
       userId: result.user?.id,
       email: result.user?.email,
     })
+
     res.json(result)
   } catch (error) {
     sendError(res, error, 401)
@@ -214,10 +242,12 @@ app.post('/auth/login', async (req, res) => {
 app.post('/groups', requireAuth, async (req, res) => {
   try {
     const name = (req.body.name || '').trim()
+
     if (!name) throw new Error('Ingresa el nombre del grupo.')
 
     const code = generateGroupCode()
     const keyHash = hashCode(code)
+
     logInfo('groups', 'Creando grupo', {
       name,
       createdBy: req.auth.sub,
@@ -239,7 +269,10 @@ app.post('/groups', requireAuth, async (req, res) => {
 
     const { error: membersError } = await supabase
       .from('channel_members')
-      .insert({ channel_id: channel.id, user_id: req.auth.sub })
+      .insert({
+        channel_id: channel.id,
+        user_id: req.auth.sub,
+      })
 
     if (membersError) throw new Error(membersError.message)
 
@@ -249,7 +282,11 @@ app.post('/groups', requireAuth, async (req, res) => {
     })
 
     res.status(201).json({
-      group: { ...channel, invite_code: code, member_ids: [req.auth.sub] },
+      group: {
+        ...channel,
+        invite_code: code,
+        member_ids: [req.auth.sub],
+      },
       code,
     })
   } catch (error) {
@@ -291,7 +328,10 @@ app.get('/groups', requireAuth, async (req, res) => {
 
     if (allMembersError) throw new Error(allMembersError.message)
 
-    const userIds = [...new Set(allMembers.map((member) => member.user_id).filter(Boolean))]
+    const userIds = [
+      ...new Set(allMembers.map((member) => member.user_id).filter(Boolean)),
+    ]
+
     const { data: users, error: usersError } = await supabase
       .from('user')
       .select('id, name, email')
@@ -309,7 +349,10 @@ app.get('/groups', requireAuth, async (req, res) => {
         const members = allMembers
           .filter((member) => member.channel_id === channel.id)
           .map((member) => {
-            const user = users.find((currentUser) => currentUser.id === member.user_id)
+            const user = users.find(
+              (currentUser) => currentUser.id === member.user_id,
+            )
+
             return {
               user_id: member.user_id,
               name: user?.name || user?.email || member.user_id,
@@ -322,7 +365,8 @@ app.get('/groups', requireAuth, async (req, res) => {
           name: channel.name,
           created_at: channel.created_at,
           created_by: channel.created_by,
-          invite_code: channel.created_by === req.auth.sub ? channel.group_code : null,
+          invite_code:
+            channel.created_by === req.auth.sub ? channel.group_code : null,
           description: `${members.length} miembro${members.length === 1 ? '' : 's'}`,
           members,
           member_ids: members.map((member) => member.user_id),
@@ -343,10 +387,15 @@ app.get('/direct-conversations', requireAuth, async (req, res) => {
 
     if (membershipError) throw new Error(membershipError.message)
 
-    const channelIds = memberships.map((membership) => membership.channel_id).filter(Boolean)
+    const channelIds = memberships
+      .map((membership) => membership.channel_id)
+      .filter(Boolean)
 
     if (channelIds.length === 0) {
-      logInfo('direct', 'Sin conversaciones directas', { userId: req.auth.sub })
+      logInfo('direct', 'Sin conversaciones directas', {
+        userId: req.auth.sub,
+      })
+
       res.json({ conversations: [] })
       return
     }
@@ -366,6 +415,7 @@ app.get('/direct-conversations', requireAuth, async (req, res) => {
     }
 
     const directChannelIds = channels.map((channel) => channel.id)
+
     const { data: members, error: membersError } = await supabase
       .from('channel_members')
       .select('channel_id, user_id')
@@ -402,9 +452,13 @@ app.get('/direct-conversations', requireAuth, async (req, res) => {
       conversations: channels.map((channel) => {
         const contactMembership = members.find(
           (member) =>
-            member.channel_id === channel.id && member.user_id !== req.auth.sub,
+            member.channel_id === channel.id &&
+            member.user_id !== req.auth.sub,
         )
-        const contact = users.find((user) => user.id === contactMembership?.user_id)
+
+        const contact = users.find(
+          (user) => user.id === contactMembership?.user_id,
+        )
 
         return {
           id: contact?.id || contactMembership?.user_id || channel.id,
@@ -433,23 +487,29 @@ app.post('/direct-conversations', requireAuth, async (req, res) => {
       ? recipientQuery.eq('id', recipientId)
       : recipientQuery.eq('email', recipientEmail)
 
-    const { data: recipient, error: recipientError } = await recipientQuery.maybeSingle()
+    const { data: recipient, error: recipientError } =
+      await recipientQuery.maybeSingle()
 
     if (recipientError) throw new Error(recipientError.message)
     if (!recipient) throw new Error('Contacto no encontrado.')
-    if (recipient.id === req.auth.sub) throw new Error('No puedes iniciar un chat contigo mismo.')
+    if (recipient.id === req.auth.sub) {
+      throw new Error('No puedes iniciar un chat contigo mismo.')
+    }
 
     const channelName = buildDirectChannelName(req.auth.sub, recipient.id)
+
     logInfo('direct', 'Preparando conversacion directa', {
       senderId: req.auth.sub,
       recipientId: recipient.id,
       channelName,
     })
-    const { data: existingChannel, error: existingChannelError } = await supabase
-      .from('channels')
-      .select('id, name, created_at')
-      .eq('name', channelName)
-      .maybeSingle()
+
+    const { data: existingChannel, error: existingChannelError } =
+      await supabase
+        .from('channels')
+        .select('id, name, created_at')
+        .eq('name', channelName)
+        .maybeSingle()
 
     if (existingChannelError) throw new Error(existingChannelError.message)
 
@@ -458,7 +518,10 @@ app.post('/direct-conversations', requireAuth, async (req, res) => {
     if (!channel) {
       const { data: newChannel, error: channelError } = await supabase
         .from('channels')
-        .insert({ name: channelName, created_by: req.auth.sub })
+        .insert({
+          name: channelName,
+          created_by: req.auth.sub,
+        })
         .select('id, name, created_at')
         .single()
 
@@ -467,19 +530,30 @@ app.post('/direct-conversations', requireAuth, async (req, res) => {
       const { error: membersError } = await supabase
         .from('channel_members')
         .insert([
-          { channel_id: newChannel.id, user_id: req.auth.sub },
-          { channel_id: newChannel.id, user_id: recipient.id },
+          {
+            channel_id: newChannel.id,
+            user_id: req.auth.sub,
+          },
+          {
+            channel_id: newChannel.id,
+            user_id: recipient.id,
+          },
         ])
 
       if (membersError) throw new Error(membersError.message)
+
       channel = newChannel
     }
 
-    logInfo('direct', existingChannel ? 'Conversacion reutilizada' : 'Conversacion creada', {
-      channelId: channel.id,
-      senderId: req.auth.sub,
-      recipientId: recipient.id,
-    })
+    logInfo(
+      'direct',
+      existingChannel ? 'Conversacion reutilizada' : 'Conversacion creada',
+      {
+        channelId: channel.id,
+        senderId: req.auth.sub,
+        recipientId: recipient.id,
+      },
+    )
 
     res.status(existingChannel ? 200 : 201).json({
       conversation: {
@@ -498,6 +572,7 @@ app.post('/direct-conversations', requireAuth, async (req, res) => {
 app.get('/groups/search', requireAuth, async (req, res) => {
   try {
     const name = (req.query.name || '').trim()
+
     if (!name) {
       res.json({ groups: [] })
       return
@@ -511,7 +586,7 @@ app.get('/groups/search', requireAuth, async (req, res) => {
 
     if (error) throw new Error(error.message)
 
-    const channelIds = channels.map((c) => c.id)
+    const channelIds = channels.map((channel) => channel.id)
     let memberChannelIds = new Set()
 
     if (channelIds.length > 0) {
@@ -521,7 +596,9 @@ app.get('/groups/search', requireAuth, async (req, res) => {
         .eq('user_id', req.auth.sub)
         .in('channel_id', channelIds)
 
-      memberChannelIds = new Set((memberships || []).map((m) => m.channel_id))
+      memberChannelIds = new Set(
+        (memberships || []).map((membership) => membership.channel_id),
+      )
     }
 
     logInfo('groups', 'Busqueda de grupos completada', {
@@ -544,6 +621,7 @@ app.get('/groups/search', requireAuth, async (req, res) => {
 app.post('/groups/:id/join', requireAuth, async (req, res) => {
   try {
     const code = (req.body.code || '').trim()
+
     if (!code) throw new Error('Ingresa el código del grupo.')
 
     const { data: channel, error: channelError } = await supabase
@@ -560,6 +638,7 @@ app.post('/groups/:id/join', requireAuth, async (req, res) => {
         groupId: req.params.id,
         userId: req.auth.sub,
       })
+
       throw new Error('Código de grupo incorrecto.')
     }
 
@@ -573,19 +652,29 @@ app.post('/groups/:id/join', requireAuth, async (req, res) => {
     if (!existing) {
       const { error: memberError } = await supabase
         .from('channel_members')
-        .insert({ channel_id: req.params.id, user_id: req.auth.sub })
+        .insert({
+          channel_id: req.params.id,
+          user_id: req.auth.sub,
+        })
 
       if (memberError) throw new Error(memberError.message)
     }
 
-    logInfo('groups', existing ? 'Grupo desbloqueado por miembro existente' : 'Usuario unido al grupo', {
-      groupId: req.params.id,
-      userId: req.auth.sub,
-    })
+    logInfo(
+      'groups',
+      existing ? 'Grupo desbloqueado por miembro existente' : 'Usuario unido al grupo',
+      {
+        groupId: req.params.id,
+        userId: req.auth.sub,
+      },
+    )
 
     res.json({
       joined: !existing,
-      group: { id: channel.id, name: channel.name },
+      group: {
+        id: channel.id,
+        name: channel.name,
+      },
     })
   } catch (error) {
     sendError(res, error)
@@ -598,19 +687,25 @@ app.get('/groups/:groupId/messages', requireAuth, async (req, res) => {
 
     const { data: messages, error: messagesError } = await supabase
       .from('messages')
-      .select('id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64, plaintext_hash, signature_base64, signature_algorithm')
+      .select(
+        'id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64, plaintext_hash, signature_base64, signature_algorithm',
+      )
       .eq('channel_id', req.params.groupId)
       .order('created_at', { ascending: true })
 
     if (messagesError) throw new Error(messagesError.message)
 
     const messagesWithSenderKeys = await attachSenderPublicKeys(messages || [])
+
     logInfo('messages', 'Mensajes de grupo cargados', {
       groupId: req.params.groupId,
       userId: req.auth.sub,
       count: messagesWithSenderKeys.length,
     })
-    res.json({ messages: messagesWithSenderKeys })
+
+    res.json({
+      messages: messagesWithSenderKeys,
+    })
   } catch (error) {
     sendError(res, error, 403)
   }
@@ -628,6 +723,7 @@ app.get('/groups/:groupId/members/keys', requireAuth, async (req, res) => {
     if (membersError) throw new Error(membersError.message)
 
     const userIds = members.map((member) => member.user_id).filter(Boolean)
+
     const { data: users, error: usersError } = await supabase
       .from('user')
       .select('id, name, email, key')
@@ -661,12 +757,14 @@ app.post('/messages', requireAuth, async (req, res) => {
       : []
 
     if (!channelId) throw new Error('Falta el ID del canal.')
-
     if (!req.body.ciphertext_base64) throw new Error('Falta el ciphertext.')
     if (!req.body.nonce_base64) throw new Error('Falta el nonce.')
-    if (!req.body.auth_tag_base64) throw new Error('Falta el tag de autenticacion.')
+    if (!req.body.auth_tag_base64) {
+      throw new Error('Falta el tag de autenticacion.')
+    }
 
     await ensureChannelMember(channelId, req.auth.sub)
+
     logInfo('messages', 'Guardando mensaje cifrado', {
       channelId,
       senderId: req.auth.sub,
@@ -678,7 +776,7 @@ app.post('/messages', requireAuth, async (req, res) => {
     const { data: message, error: messageError } = await supabase
       .from('messages')
       .insert({
-        channel_id: channelId || null,
+        channel_id: channelId,
         sender_id: req.auth.sub,
         ciphertext_base64: req.body.ciphertext_base64,
         nonce_base64: req.body.nonce_base64,
@@ -687,10 +785,13 @@ app.post('/messages', requireAuth, async (req, res) => {
         signature_base64: req.body.signature_base64 || null,
         signature_algorithm: req.body.signature_algorithm || null,
       })
-      .select('id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64, plaintext_hash, signature_base64, signature_algorithm')
+      .select(
+        'id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64, plaintext_hash, signature_base64, signature_algorithm',
+      )
       .single()
 
     if (messageError) throw new Error(messageError.message)
+
     logInfo('messages', 'Mensaje guardado', {
       messageId: message.id,
       channelId: message.channel_id,
@@ -698,36 +799,46 @@ app.post('/messages', requireAuth, async (req, res) => {
       signatureAlgorithm: message.signature_algorithm || 'none',
     })
 
+    let blockchainBlock = null
+
     try {
-      const block = await registerMessageTransaction({
+      blockchainBlock = await registerMessageTransaction({
         ...message,
         group_id: message.channel_id,
         message_hash: message.plaintext_hash,
       })
+
       logInfo('blockchain', 'Mensaje registrado en blockchain', {
         messageId: message.id,
-        blockIndex: block.index,
-        blockHash: shortValue(block.hash),
-        previousHash: shortValue(block.previous_hash),
+        blockIndex: blockchainBlock.index,
+        blockHash: shortValue(blockchainBlock.hash),
+        previousHash: shortValue(blockchainBlock.previous_hash),
       })
     } catch (blockchainError) {
-      console.error('[blockchain] No se pudo registrar el mensaje:', blockchainError.message)
+      console.error(
+        '[blockchain] No se pudo registrar el mensaje:',
+        blockchainError.message,
+      )
     }
 
     let keys = []
+
     if (encryptedKeys.length > 0) {
       const { data: insertedKeys, error: keysError } = await supabase
         .from('message_keys')
         .insert(
           encryptedKeys.map((key) => ({
             message_id: message.id,
-            encrypted_key_base64: key.encrypted_key_base64 || key.encrypted_key,
+            encrypted_key_base64:
+              key.encrypted_key_base64 || key.encrypted_key,
           })),
         )
         .select('id, message_id, encrypted_key_base64')
 
       if (keysError) throw new Error(keysError.message)
+
       keys = insertedKeys || []
+
       logInfo('messages', 'Claves cifradas guardadas', {
         messageId: message.id,
         count: keys.length,
@@ -744,6 +855,7 @@ app.post('/messages', requireAuth, async (req, res) => {
         nonce: message.nonce_base64,
         auth_tag: message.auth_tag_base64,
         encrypted_keys: keys,
+        blockchain_block: blockchainBlock,
       },
     })
   } catch (error) {
@@ -764,7 +876,9 @@ app.get('/messages/:userId', requireAuth, async (req, res) => {
 
     if (membershipError) throw new Error(membershipError.message)
 
-    const channelIds = memberships.map((membership) => membership.channel_id).filter(Boolean)
+    const channelIds = memberships
+      .map((membership) => membership.channel_id)
+      .filter(Boolean)
 
     if (channelIds.length === 0) {
       res.json({ messages: [] })
@@ -773,11 +887,14 @@ app.get('/messages/:userId', requireAuth, async (req, res) => {
 
     const { data: allMessages, error: messagesError } = await supabase
       .from('messages')
-      .select('id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64, plaintext_hash, signature_base64, signature_algorithm')
+      .select(
+        'id, created_at, channel_id, sender_id, ciphertext_base64, nonce_base64, auth_tag_base64, plaintext_hash, signature_base64, signature_algorithm',
+      )
       .in('channel_id', channelIds)
       .order('created_at', { ascending: false })
 
     if (messagesError) throw new Error(messagesError.message)
+
     logInfo('messages', 'Mensajes del usuario cargados', {
       userId: req.auth.sub,
       count: allMessages.length,
@@ -821,7 +938,10 @@ app.get('/users', async (req, res) => {
       .select('id, name, email, key')
 
     if (error) throw new Error(error.message)
-    res.json({ users })
+
+    res.json({
+      users,
+    })
   } catch (error) {
     sendError(res, error)
   }
@@ -830,11 +950,16 @@ app.get('/users', async (req, res) => {
 app.get('/blockchain', requireAuth, async (req, res) => {
   try {
     const blocks = await getFullBlockchain()
+
     logInfo('blockchain', 'Cadena consultada', {
       userId: req.auth.sub,
       blocks: blocks.length,
     })
-    res.json({ blocks })
+
+    res.json({
+      blocks,
+      total_blocks: blocks.length,
+    })
   } catch (error) {
     sendError(res, error, 500)
   }
@@ -843,15 +968,39 @@ app.get('/blockchain', requireAuth, async (req, res) => {
 app.get('/blockchain/verify', requireAuth, async (req, res) => {
   try {
     const verification = await verifyFullBlockchain()
+
     logInfo('blockchain', 'Verificacion de cadena ejecutada', {
       userId: req.auth.sub,
       valid: verification.valid,
       blocks: verification.blocks,
       invalidIndex: verification.invalid_index,
     })
+
     res.json(verification)
   } catch (error) {
     sendError(res, error, 500)
+  }
+})
+
+app.post('/blockchain/tamper/:index', requireAuth, async (req, res) => {
+  try {
+    const block = await tamperBlockForDemo(req.params.index)
+    const verification = await verifyFullBlockchain()
+
+    logInfo('blockchain', 'Bloque modificado para demo', {
+      userId: req.auth.sub,
+      blockIndex: block.index,
+      validAfterTamper: verification.valid,
+      invalidIndex: verification.invalid_index,
+    })
+
+    res.json({
+      message: 'Bloque modificado para demo.',
+      block,
+      verification,
+    })
+  } catch (error) {
+    sendError(res, error, 400)
   }
 })
 

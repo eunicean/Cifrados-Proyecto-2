@@ -371,3 +371,18 @@ async function verifyDecryptedMessageSignature(message) {
     return { ...message, signature_status: 'invalid' }
   }
 }
+
+export async function loadBlockchain() {
+  const data = await apiRequest('/blockchain')
+  return data.blocks || data || []
+}
+
+export async function verifyBlockchainIntegrity() {
+  return await apiRequest('/blockchain/verify')
+}
+
+export async function tamperBlockchainBlock(blockIndex) {
+  return await apiRequest(`/blockchain/tamper/${blockIndex}`, {
+    method: 'POST',
+  })
+}

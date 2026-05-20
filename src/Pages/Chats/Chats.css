@@ -816,3 +816,285 @@
     min-height: 48px;
   }
 }
+
+.locked-pill {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+  font-size: 0.66rem;
+  font-weight: 900;
+}
+
+.cool-chat-header {
+  position: relative;
+  overflow: hidden;
+}
+
+.cool-chat-header::after {
+  content: "";
+  position: absolute;
+  width: 180px;
+  height: 180px;
+  right: -70px;
+  top: -90px;
+  border-radius: 50%;
+  background: rgba(36, 87, 214, 0.1);
+  pointer-events: none;
+}
+
+.empty-chat-panel {
+  display: grid;
+  place-items: center;
+}
+
+.empty-chat-card,
+.unlock-group-card {
+  width: min(420px, 100%);
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  padding: 28px;
+  border: 1px solid #dbe3ef;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.06);
+  text-align: center;
+}
+
+.empty-chat-card span,
+.unlock-group-card span {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border-radius: 20px;
+  background: rgba(36, 87, 214, 0.11);
+  font-size: 1.6rem;
+}
+
+.empty-chat-card h2,
+.unlock-group-card h2 {
+  margin: 0;
+  color: #102033;
+  letter-spacing: -0.05em;
+}
+
+.empty-chat-card p,
+.unlock-group-card p {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.unlock-group-card input {
+  width: 100%;
+  max-width: 260px;
+  border: 1px solid #dbe3ef;
+  border-radius: 16px;
+  background: #f8fafc;
+  color: #102033;
+  padding: 13px 14px;
+  outline: none;
+  text-align: center;
+  letter-spacing: 0.22em;
+  font-size: 1.1rem;
+  font-weight: 900;
+}
+
+.unlock-group-card button {
+  min-height: 46px;
+  min-width: 180px;
+  border: 0;
+  border-radius: 16px;
+  background: #2457d6;
+  color: white;
+  font-weight: 950;
+}
+
+.message-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.message-tags small {
+  margin: 0;
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #2457d6;
+  font-size: 0.7rem;
+  font-weight: 950;
+}
+
+.message-bubble.own .message-tags small {
+  background: rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.group-summary-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.group-summary-card::after {
+  content: "";
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  right: -52px;
+  bottom: -56px;
+  border-radius: 50%;
+  background: rgba(36, 87, 214, 0.1);
+}
+
+.invite-code-card {
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.22), transparent 38%),
+    linear-gradient(135deg, #2457d6, #102033);
+  color: white;
+}
+
+.invite-code-card .section-label,
+.invite-code-card p {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.invite-code-text {
+  margin: 8px 0;
+  color: white !important;
+  font-size: 1.8rem;
+  font-weight: 950;
+  letter-spacing: 0.28em;
+}
+
+.blockchain-card {
+  display: grid;
+  gap: 14px;
+}
+
+.blockchain-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.blockchain-header h3 {
+  margin: 0;
+  color: #102033;
+  letter-spacing: -0.04em;
+}
+
+.blockchain-refresh-button,
+.tamper-block-button {
+  border: 0;
+  border-radius: 12px;
+  padding: 9px 12px;
+  background: #2457d6;
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 950;
+}
+
+.blockchain-refresh-button:disabled,
+.tamper-block-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.blockchain-status {
+  padding: 10px 12px;
+  border-radius: 14px;
+  font-size: 0.82rem;
+  font-weight: 950;
+}
+
+.blockchain-status.valid {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.blockchain-status.invalid {
+  background: #fee2e2;
+  color: #b42318;
+}
+
+.blockchain-list {
+  display: grid;
+  gap: 12px;
+  max-height: 430px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.blockchain-block {
+  display: grid;
+  gap: 8px;
+  padding: 13px;
+  border: 1px solid #dbe3ef;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(36, 87, 214, 0.08), transparent 38%),
+    #f8fafc;
+}
+
+.blockchain-block.invalid {
+  border-color: #ef4444;
+  background:
+    radial-gradient(circle at top right, rgba(239, 68, 68, 0.08), transparent 38%),
+    #fff1f0;
+}
+
+.blockchain-block-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.blockchain-block-title strong {
+  color: #102033;
+}
+
+.blockchain-block-title span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #2457d6;
+  font-size: 0.7rem;
+  font-weight: 950;
+}
+
+.blockchain-block.invalid .blockchain-block-title span {
+  background: #fee2e2;
+  color: #b42318;
+}
+
+.blockchain-row {
+  display: grid;
+  gap: 3px;
+}
+
+.blockchain-row span {
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.blockchain-row code {
+  overflow: hidden;
+  color: #102033;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tamper-block-button {
+  margin-top: 4px;
+  background: #b42318;
+}
