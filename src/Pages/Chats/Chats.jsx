@@ -78,19 +78,23 @@ function Chats() {
     setStatus({ type, message })
   }
 
-  const refreshGroups = useCallback(async () => {
+  const refreshGroups = useCallback(async (silent = false) => {
     try {
       const loadedGroups = await loadUserGroups()
 
       setGroups(loadedGroups)
       setSelectedGroupId((currentGroupId) => currentGroupId || loadedGroups[0]?.id || '')
     } catch (error) {
-      showStatus('error', error.message)
+      if (silent) {
+        console.warn('[groups] No se pudieron actualizar grupos:', error.message)
+      } else {
+        showStatus('error', error.message)
+      }
     }
   }, [])
 
-  const refreshBlockchain = useCallback(async () => {
-    setBlockchainLoading(true)
+  const refreshBlockchain = useCallback(async (silent = false) => {
+    if (!silent) setBlockchainLoading(true)
 
     try {
       const [blocks, verification] = await Promise.all([
@@ -101,11 +105,41 @@ function Chats() {
       setBlockchainBlocks(blocks)
       setBlockchainVerification(verification)
     } catch (error) {
-      showStatus('error', error.message)
+      if (silent) {
+        console.warn('[blockchain] No se pudo actualizar la cadena:', error.message)
+      } else {
+        showStatus('error', error.message)
+      }
     } finally {
-      setBlockchainLoading(false)
+      if (!silent) setBlockchainLoading(false)
     }
   }, [])
+
+  const refreshSelectedGroupMessages = useCallback(async (silent = false) => {
+    if (!selectedGroupId || !unlockedGroupIds.has(selectedGroupId)) return
+
+    if (!silent) {
+      setLoading(true)
+      showStatus('loading', 'Cargando mensajes...')
+    }
+
+    try {
+      const rawMessages = await loadGroupMessages(selectedGroupId)
+      const groupKey = groupKeysRef.current[selectedGroupId]
+      const decryptedMessages = await decryptGroupMessages(rawMessages, groupKey)
+
+      setMessages(decryptedMessages)
+      if (!silent) showStatus('success', 'Mensajes cargados.')
+    } catch (error) {
+      if (silent) {
+        console.warn('[groups] No se pudieron actualizar mensajes:', error.message)
+      } else {
+        showStatus('error', error.message)
+      }
+    } finally {
+      if (!silent) setLoading(false)
+    }
+  }, [selectedGroupId, unlockedGroupIds])
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -165,22 +199,12 @@ function Chats() {
     let cancelled = false
 
     async function loadMessages() {
-      setLoading(true)
-      showStatus('loading', 'Cargando mensajes...')
-
       try {
-        const rawMessages = await loadGroupMessages(selectedGroupId)
-        const groupKey = groupKeysRef.current[selectedGroupId]
-        const decryptedMessages = await decryptGroupMessages(rawMessages, groupKey)
-
         if (!cancelled) {
-          setMessages(decryptedMessages)
-          showStatus('success', 'Mensajes cargados.')
+          await refreshSelectedGroupMessages()
         }
-      } catch (error) {
-        if (!cancelled) showStatus('error', error.message)
-      } finally {
-        if (!cancelled) setLoading(false)
+      } catch {
+        // refreshSelectedGroupMessages already reports visible errors.
       }
     }
 
@@ -189,7 +213,40 @@ function Chats() {
     return () => {
       cancelled = true
     }
-  }, [selectedGroupId, isUnlocked])
+  }, [selectedGroupId, isUnlocked, refreshSelectedGroupMessages])
+
+  useEffect(() => {
+    const groupsInterval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        refreshGroups(true)
+      }
+    }, 30000)
+
+    const blockchainInterval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        refreshBlockchain(true)
+      }
+    }, 15000)
+
+    return () => {
+      window.clearInterval(groupsInterval)
+      window.clearInterval(blockchainInterval)
+    }
+  }, [refreshBlockchain, refreshGroups])
+
+  useEffect(() => {
+    if (!selectedGroupId || !isUnlocked) return
+
+    const messagesInterval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        refreshSelectedGroupMessages(true)
+      }
+    }, 5000)
+
+    return () => {
+      window.clearInterval(messagesInterval)
+    }
+  }, [selectedGroupId, isUnlocked, refreshSelectedGroupMessages])
 
   function handleSelectGroup(groupId) {
     setSelectedGroupId(groupId)

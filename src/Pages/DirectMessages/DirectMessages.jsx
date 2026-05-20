@@ -75,27 +75,35 @@ function DirectMessages() {
     setStatus({ type, message })
   }
 
-  const refreshContacts = useCallback(async () => {
-    setLoading(true)
-    showStatus('loading', 'Cargando contactos...')
+  const refreshContacts = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true)
+      showStatus('loading', 'Cargando contactos...')
+    }
 
     try {
       const loadedContacts = await loadContacts()
       setContacts(loadedContacts)
       setSelectedContactId((currentContactId) => currentContactId || loadedContacts[0]?.id || '')
-      showStatus('success', 'Contactos cargados.')
+      if (!silent) showStatus('success', 'Contactos cargados.')
     } catch (error) {
-      showStatus('error', error.message)
+      if (silent) {
+        console.warn('[direct] No se pudieron actualizar contactos:', error.message)
+      } else {
+        showStatus('error', error.message)
+      }
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [])
 
-  const refreshMessages = useCallback(async () => {
+  const refreshMessages = useCallback(async (silent = false) => {
     if (!currentUser?.id) return
 
-    setLoading(true)
-    showStatus('loading', 'Cargando mensajes cifrados...')
+    if (!silent) {
+      setLoading(true)
+      showStatus('loading', 'Cargando mensajes cifrados...')
+    }
 
     try {
       const encryptedMessages = await loadUserMessages(currentUser.id)
@@ -107,11 +115,15 @@ function DirectMessages() {
       setMessages((currentMessages) =>
         preserveLocalPlaintext(decryptedMessages, currentMessages),
       )
-      showStatus('success', 'Mensajes actualizados.')
+      if (!silent) showStatus('success', 'Mensajes actualizados.')
     } catch (error) {
-      showStatus('error', error.message)
+      if (silent) {
+        console.warn('[direct] No se pudieron actualizar mensajes:', error.message)
+      } else {
+        showStatus('error', error.message)
+      }
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }, [currentUser?.id, privateKeyPem])
 
@@ -126,6 +138,27 @@ function DirectMessages() {
       refreshMessages()
     })
   }, [refreshMessages])
+
+  useEffect(() => {
+    if (!currentUser?.id) return
+
+    const messagesInterval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        refreshMessages(true)
+      }
+    }, 5000)
+
+    const contactsInterval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        refreshContacts(true)
+      }
+    }, 30000)
+
+    return () => {
+      window.clearInterval(messagesInterval)
+      window.clearInterval(contactsInterval)
+    }
+  }, [currentUser?.id, refreshContacts, refreshMessages])
 
   function handleSelectContact(contactId) {
     setSelectedContactId(contactId)
