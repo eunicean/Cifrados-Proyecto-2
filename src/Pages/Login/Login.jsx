@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { registerWithKeyPair } from '../../services/authService'
+import { decryptPrivateKey } from '../../utils/privateKeyEncryption'
 import './Login.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
@@ -13,6 +14,11 @@ const emptyRegisterForm = {
 
 const emptyLoginForm = {
   email: '',
+  password: '',
+}
+
+const emptySessionKeyForm = {
+  encrypted_key_json: '',
   password: '',
 }
 
@@ -48,6 +54,8 @@ function Login() {
   const [authMode, setAuthMode] = useState('login')
   const [registerForm, setRegisterForm] = useState(emptyRegisterForm)
   const [loginForm, setLoginForm] = useState(emptyLoginForm)
+  const [sessionKeyForm, setSessionKeyForm] = useState(emptySessionKeyForm)
+  const [showSessionKeyModal, setShowSessionKeyModal] = useState(false)
 
   const [currentUser, setCurrentUser] = useState(() => {
     const stored = localStorage.getItem('blu_user')
@@ -117,6 +125,11 @@ function Login() {
       localStorage.setItem('blu_user', JSON.stringify(user))
 
       setCurrentUser(user)
+      setSessionKeyForm({
+        encrypted_key_json: '',
+        password: loginForm.password,
+      })
+      setShowSessionKeyModal(!sessionStorage.getItem('blu_private_key_pem'))
       setLoginForm(emptyLoginForm)
       showStatus('success', 'Sesión iniciada correctamente.')
     } catch (error) {
@@ -129,8 +142,53 @@ function Login() {
   function handleLogout() {
     localStorage.removeItem('blu_token')
     localStorage.removeItem('blu_user')
+    sessionStorage.removeItem('blu_private_key_pem')
+    sessionStorage.removeItem('blu_private_key_loaded_at')
     setCurrentUser(null)
+    setSessionKeyForm(emptySessionKeyForm)
+    setShowSessionKeyModal(false)
     showStatus('idle', '')
+  }
+
+  async function handleSessionKeyFileChange(event) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      const content = await file.text()
+      JSON.parse(content)
+      setSessionKeyForm((current) => ({
+        ...current,
+        encrypted_key_json: content,
+      }))
+      showStatus('success', 'Archivo de llave cargado.')
+    } catch {
+      showStatus('error', 'El archivo seleccionado no tiene un JSON valido.')
+    }
+  }
+
+  async function handleSaveSessionKey(event) {
+    event.preventDefault()
+    setLoading(true)
+    showStatus('loading', 'Desbloqueando llave para esta sesion...')
+
+    try {
+      const encryptedPrivateKey = JSON.parse(sessionKeyForm.encrypted_key_json)
+      const privateKeyPem = await decryptPrivateKey(
+        encryptedPrivateKey,
+        sessionKeyForm.password,
+      )
+
+      sessionStorage.setItem('blu_private_key_pem', privateKeyPem)
+      sessionStorage.setItem('blu_private_key_loaded_at', new Date().toISOString())
+      setSessionKeyForm(emptySessionKeyForm)
+      setShowSessionKeyModal(false)
+      showStatus('success', 'Llave privada lista para esta sesion.')
+    } catch {
+      showStatus('error', 'No se pudo desbloquear la llave. Revisa el JSON y la contrasena.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   if (!isLoggedIn) {
@@ -262,6 +320,62 @@ function Login() {
   }
 
   return (
+    <>
+    {showSessionKeyModal && (
+      <div className="session-key-backdrop">
+        <section className="session-key-modal" role="dialog" aria-modal="true">
+          <button
+            type="button"
+            className="session-key-close"
+            onClick={() => setShowSessionKeyModal(false)}
+            aria-label="Cerrar"
+          >
+            x
+          </button>
+
+          <p className="eyebrow">Llave de sesion</p>
+          <h2>Sube tu llave privada</h2>
+          <p className="muted">
+            Se desbloquea solo para esta sesion y se borra al cerrar sesion o por inactividad.
+          </p>
+
+          <form className="form-stack" onSubmit={handleSaveSessionKey}>
+            <label>
+              Archivo JSON de llave privada
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={handleSessionKeyFileChange}
+                required={!sessionKeyForm.encrypted_key_json}
+              />
+            </label>
+
+            <label>
+              Contraseña
+              <input
+                type="password"
+                value={sessionKeyForm.password}
+                onChange={(event) =>
+                  setSessionKeyForm((current) => ({
+                    ...current,
+                    password: event.target.value,
+                  }))
+                }
+                required
+              />
+            </label>
+
+            <button
+              className="primary-button"
+              disabled={loading || !sessionKeyForm.encrypted_key_json}
+            >
+              {loading ? 'Guardando...' : 'Usar en esta sesion'}
+            </button>
+          </form>
+        </section>
+      </div>
+    )}
+
     <main className="app-shell">
       <aside className="sidebar">
         <div>
@@ -281,6 +395,10 @@ function Login() {
 
             <button onClick={() => navigate('/direct-messages')}>
               Chats individuales
+            </button>
+
+            <button onClick={() => setShowSessionKeyModal(true)}>
+              Cargar llave de sesion
             </button>
           </nav>
         </div>
@@ -361,6 +479,7 @@ function Login() {
         </section>
       </section>
     </main>
+    </>
   )
 }
 

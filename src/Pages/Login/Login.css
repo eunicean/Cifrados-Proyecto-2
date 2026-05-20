@@ -321,6 +321,42 @@ textarea:focus {
   color: var(--primary);
 }
 
+.session-key-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(15, 23, 42, 0.62);
+  backdrop-filter: blur(10px);
+}
+
+.session-key-modal {
+  position: relative;
+  width: min(520px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 30px;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: white;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.28);
+}
+
+.session-key-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: #f1f5f9;
+  color: #334155;
+  font-weight: 950;
+}
+
 .app-shell {
   min-height: 100svh;
   display: grid;

@@ -45,7 +45,9 @@ function Chats() {
     encrypted_key_json: '',
     password: '',
   })
-  const [signaturePrivateKeyPem, setSignaturePrivateKeyPem] = useState('')
+  const [signaturePrivateKeyPem, setSignaturePrivateKeyPem] = useState(
+    () => sessionStorage.getItem('blu_private_key_pem') || '',
+  )
 
   const groupKeysRef = useRef({})
   const [unlockedGroupIds, setUnlockedGroupIds] = useState(new Set())
@@ -106,6 +108,13 @@ function Chats() {
 
       setBlockchainBlocks(blocks)
       setBlockchainVerification(verification)
+
+      if (!verification.valid) {
+        showStatus(
+          'error',
+          `Alerta: la mini blockchain fue alterada en el bloque #${verification.invalid_index}.`,
+        )
+      }
     } catch (error) {
       if (silent) {
         console.warn('[blockchain] No se pudo actualizar la cadena:', error.message)
@@ -463,6 +472,8 @@ function Chats() {
       )
 
       setSignaturePrivateKeyPem(privateKeyPem)
+      sessionStorage.setItem('blu_private_key_pem', privateKeyPem)
+      sessionStorage.setItem('blu_private_key_loaded_at', new Date().toISOString())
 
       setSignatureKeyForm((current) => ({
         ...current,
@@ -615,6 +626,16 @@ function Chats() {
           <p className={`chat-status-message ${status.type}`}>
             {status.message}
           </p>
+        )}
+
+        {blockchainVerification && !blockchainVerification.valid && (
+          <div className="blockchain-alert">
+            <strong>Mini blockchain comprometida</strong>
+            <span>
+              La verificación falló en el bloque #{blockchainVerification.invalid_index}.
+              Los mensajes pueden seguir teniendo firma válida, pero la cadena ya no es íntegra.
+            </span>
+          </div>
         )}
 
         {!selectedGroupId ? (

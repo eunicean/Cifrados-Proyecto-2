@@ -46,7 +46,9 @@ function DirectMessages() {
   const [contactForm, setContactForm] = useState(emptyContactForm)
 
   const [privateKeyForm, setPrivateKeyForm] = useState(emptyPrivateKeyForm)
-  const [privateKeyPem, setPrivateKeyPem] = useState('')
+  const [privateKeyPem, setPrivateKeyPem] = useState(
+    () => sessionStorage.getItem('blu_private_key_pem') || '',
+  )
 
   const [selectedMessage, setSelectedMessage] = useState(null)
   const [lastEncryptedPayload, setLastEncryptedPayload] = useState(null)
@@ -56,7 +58,9 @@ function DirectMessages() {
 
   const [loading, setLoading] = useState(false)
   const [showNewContactForm, setShowNewContactForm] = useState(false)
-  const [showUnlockModal, setShowUnlockModal] = useState(true)
+  const [showUnlockModal, setShowUnlockModal] = useState(
+    () => !sessionStorage.getItem('blu_private_key_pem'),
+  )
 
   const [blockchainBlocks, setBlockchainBlocks] = useState([])
   const [blockchainVerification, setBlockchainVerification] = useState(null)
@@ -313,6 +317,8 @@ function DirectMessages() {
       )
 
       setPrivateKeyPem(decryptedPrivateKeyPem)
+      sessionStorage.setItem('blu_private_key_pem', decryptedPrivateKeyPem)
+      sessionStorage.setItem('blu_private_key_loaded_at', new Date().toISOString())
 
       setPrivateKeyForm((current) => ({
         ...current,
