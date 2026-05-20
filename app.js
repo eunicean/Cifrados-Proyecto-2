@@ -7,6 +7,7 @@ import { loginUser } from './src/auth/loginUser.js'
 import {
   getFullBlockchain,
   registerMessageTransaction,
+  resetBlockchainForDemo,
   tamperBlockForDemo,
   verifyFullBlockchain,
 } from './src/blockchain/blockchainService.js'
@@ -1001,6 +1002,28 @@ app.post('/blockchain/tamper/:index', requireAuth, async (req, res) => {
     })
   } catch (error) {
     sendError(res, error, 400)
+  }
+})
+
+app.post('/blockchain/reset', requireAuth, async (req, res) => {
+  try {
+    const genesisBlock = await resetBlockchainForDemo()
+    const verification = await verifyFullBlockchain()
+
+    logInfo('blockchain', 'Blockchain reiniciado para demo', {
+      userId: req.auth.sub,
+      genesisHash: shortValue(genesisBlock.hash),
+      valid: verification.valid,
+      blocks: verification.blocks,
+    })
+
+    res.json({
+      message: 'Blockchain reiniciado para demo.',
+      genesis_block: genesisBlock,
+      verification,
+    })
+  } catch (error) {
+    sendError(res, error, 500)
   }
 })
 

@@ -138,3 +138,16 @@ export async function updateBlockForDemo(blockIndex, changes) {
 
   return mapDbBlockToDomain(data)
 }
+
+export async function deleteAllBlockchainBlocksForDemo() {
+  const { error } = await supabase
+    .from(BLOCKCHAIN_TABLE)
+    .delete()
+    .neq('block_index', -1)
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  return true
+}

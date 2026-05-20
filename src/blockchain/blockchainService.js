@@ -5,6 +5,7 @@ import {
   verifyBlockchain,
 } from './block.js'
 import {
+  deleteAllBlockchainBlocksForDemo,
   getBlockchain,
   getBlockByIndex,
   getLastBlock,
@@ -56,11 +57,13 @@ export async function registerMessageTransaction(message) {
     throw new Error('El hash del mensaje no es un SHA-256 valido.')
   }
 
+  const groupId = message.group_id || message.channel_id || null
+
   logBlockchain('Preparando transaccion de mensaje', {
     messageId: message.id,
     senderId: message.sender_id,
     recipientId: message.recipient_id || null,
-    groupId: message.group_id || message.channel_id || null,
+    groupId,
     messageHash: shortValue(messageHash),
     previousIndex: lastBlock.index,
   })
@@ -69,7 +72,7 @@ export async function registerMessageTransaction(message) {
     message_id: message.id,
     sender_id: message.sender_id,
     recipient_id: message.recipient_id || null,
-    group_id: message.group_id || message.channel_id || null,
+    group_id: groupId,
     message_hash: messageHash,
   })
 
@@ -151,9 +154,6 @@ export async function tamperBlockForDemo(blockIndex) {
     `TAMPERED_BLOCK_${numericIndex}_${Date.now()}`,
   )
 
-  // Importante:
-  // Solo alteramos message_hash y NO recalculamos el hash del bloque.
-  // Así la verificación detecta que el contenido del bloque fue modificado.
   const updatedBlock = await updateBlockForDemo(numericIndex, {
     message_hash: fakeMessageHash,
   })
@@ -165,4 +165,17 @@ export async function tamperBlockForDemo(blockIndex) {
   })
 
   return updatedBlock
+}
+
+export async function resetBlockchainForDemo() {
+  await deleteAllBlockchainBlocksForDemo()
+
+  const genesisBlock = createGenesisBlock()
+  const savedGenesisBlock = await saveBlock(genesisBlock)
+
+  logBlockchain('Blockchain reiniciado para demo', {
+    genesisHash: shortValue(savedGenesisBlock.hash),
+  })
+
+  return savedGenesisBlock
 }

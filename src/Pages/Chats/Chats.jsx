@@ -83,7 +83,9 @@ function Chats() {
       const loadedGroups = await loadUserGroups()
 
       setGroups(loadedGroups)
-      setSelectedGroupId((currentGroupId) => currentGroupId || loadedGroups[0]?.id || '')
+      setSelectedGroupId(
+        (currentGroupId) => currentGroupId || loadedGroups[0]?.id || '',
+      )
     } catch (error) {
       if (silent) {
         console.warn('[groups] No se pudieron actualizar grupos:', error.message)
@@ -129,6 +131,7 @@ function Chats() {
       const decryptedMessages = await decryptGroupMessages(rawMessages, groupKey)
 
       setMessages(decryptedMessages)
+
       if (!silent) showStatus('success', 'Mensajes cargados.')
     } catch (error) {
       if (silent) {
@@ -204,7 +207,7 @@ function Chats() {
           await refreshSelectedGroupMessages()
         }
       } catch {
-        // refreshSelectedGroupMessages already reports visible errors.
+        // refreshSelectedGroupMessages ya muestra el error.
       }
     }
 
@@ -415,6 +418,7 @@ function Chats() {
       const result = await tamperBlockchainBlock(blockIndex)
 
       setBlockchainVerification(result.verification)
+
       await refreshBlockchain()
 
       showStatus(
@@ -452,12 +456,14 @@ function Chats() {
 
     try {
       const encryptedPrivateKey = JSON.parse(signatureKeyForm.encrypted_key_json)
+
       const privateKeyPem = await decryptPrivateKey(
         encryptedPrivateKey,
         signatureKeyForm.password,
       )
 
       setSignaturePrivateKeyPem(privateKeyPem)
+
       setSignatureKeyForm((current) => ({
         ...current,
         password: '',
@@ -670,12 +676,8 @@ function Chats() {
 
                   <div className="message-tags">
                     <SignatureStatus status={message.signature_status} />
-                    {message.ciphertext_base64 && (
-                      <small>AES-256-GCM</small>
-                    )}
-                    {message.plaintext_hash && (
-                      <small>SHA-256</small>
-                    )}
+                    {message.ciphertext_base64 && <small>AES-256-GCM</small>}
+                    {message.plaintext_hash && <small>SHA-256</small>}
                   </div>
                 </article>
               ))
@@ -723,6 +725,59 @@ function Chats() {
           </div>
         )}
 
+        <div className="details-card">
+          <p className="section-label">Miembros</p>
+
+          <div className="members-list">
+            {selectedGroup?.members?.length ? (
+              selectedGroup.members.map((member) => (
+                <div className="member-item" key={member.user_id || member}>
+                  <span>{(member.name || member).charAt(0).toUpperCase()}</span>
+                  <strong>{member.name || member}</strong>
+                </div>
+              ))
+            ) : (
+              <p className="empty-text">Sin miembros cargados.</p>
+            )}
+          </div>
+        </div>
+
+        <div className="details-card">
+          <p className="section-label">Firma digital</p>
+
+          {signaturePrivateKeyPem ? (
+            <p className="verified-copy">
+              Llave lista. Tus mensajes se firman con RSA-PSS.
+            </p>
+          ) : (
+            <form className="key-card" onSubmit={handleUnlockSignatureKey}>
+              <input
+                type="file"
+                accept=".json,application/json"
+                onChange={handleSignatureKeyFileChange}
+                required={!signatureKeyForm.encrypted_key_json}
+              />
+
+              <input
+                type="password"
+                value={signatureKeyForm.password}
+                onChange={(event) =>
+                  setSignatureKeyForm((current) => ({
+                    ...current,
+                    password: event.target.value,
+                  }))
+                }
+                placeholder="Contrasena"
+                required
+              />
+
+              <button disabled={loading || !signatureKeyForm.encrypted_key_json}>
+                Activar firma
+              </button>
+            </form>
+          )}
+        </div>
+
         <div className="details-card blockchain-card">
           <div className="blockchain-header">
             <div>
@@ -733,7 +788,7 @@ function Chats() {
             <button
               type="button"
               className="blockchain-refresh-button"
-              onClick={refreshBlockchain}
+              onClick={() => refreshBlockchain()}
               disabled={blockchainLoading}
             >
               {blockchainLoading ? 'Cargando' : 'Actualizar'}
@@ -809,59 +864,6 @@ function Chats() {
               ))
             )}
           </div>
-        </div>
-
-        <div className="details-card">
-          <p className="section-label">Miembros</p>
-
-          <div className="members-list">
-            {selectedGroup?.members?.length ? (
-              selectedGroup.members.map((member) => (
-                <div className="member-item" key={member.user_id || member}>
-                  <span>{(member.name || member).charAt(0).toUpperCase()}</span>
-                  <strong>{member.name || member}</strong>
-                </div>
-              ))
-            ) : (
-              <p className="empty-text">Sin miembros cargados.</p>
-            )}
-          </div>
-        </div>
-
-        <div className="details-card">
-          <p className="section-label">Firma digital</p>
-
-          {signaturePrivateKeyPem ? (
-            <p className="verified-copy">
-              Llave lista. Tus mensajes se firman con RSA-PSS.
-            </p>
-          ) : (
-            <form className="key-card" onSubmit={handleUnlockSignatureKey}>
-              <input
-                type="file"
-                accept=".json,application/json"
-                onChange={handleSignatureKeyFileChange}
-                required={!signatureKeyForm.encrypted_key_json}
-              />
-
-              <input
-                type="password"
-                value={signatureKeyForm.password}
-                onChange={(event) =>
-                  setSignatureKeyForm((current) => ({
-                    ...current,
-                    password: event.target.value,
-                  }))
-                }
-                placeholder="Contrasena"
-                required
-              />
-
-              <button disabled={loading || !signatureKeyForm.encrypted_key_json}>
-                Activar firma
-              </button>
-            </form>
-          )}
         </div>
 
         <div className="details-card">

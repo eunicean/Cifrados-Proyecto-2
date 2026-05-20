@@ -25,6 +25,20 @@ export function stableStringify(value) {
     .join(',')}}`
 }
 
+export function normalizeTimestamp(timestamp) {
+  if (!timestamp) {
+    return new Date().toISOString()
+  }
+
+  const normalizedDate = new Date(timestamp)
+
+  if (Number.isNaN(normalizedDate.getTime())) {
+    throw new Error('El timestamp del bloque no es valido.')
+  }
+
+  return normalizedDate.toISOString()
+}
+
 export function normalizeTransactionData(block) {
   return {
     message_id: block.message_id || null,
@@ -36,10 +50,11 @@ export function normalizeTransactionData(block) {
 }
 
 export function calculateBlockHash(block) {
+  const normalizedTimestamp = normalizeTimestamp(block.timestamp)
   const data = stableStringify(normalizeTransactionData(block))
 
   return sha256Hex(
-    `${block.index}${block.timestamp}${data}${block.previous_hash}${block.nonce}`,
+    `${block.index}${normalizedTimestamp}${data}${block.previous_hash}${block.nonce}`,
   )
 }
 
@@ -51,9 +66,14 @@ export function mineBlock(blockData, difficulty = DEFAULT_DIFFICULTY) {
   const prefix = '0'.repeat(difficulty)
   let nonce = 0
 
+  const normalizedBlockData = {
+    ...blockData,
+    timestamp: normalizeTimestamp(blockData.timestamp),
+  }
+
   while (true) {
     const candidateBlock = {
-      ...blockData,
+      ...normalizedBlockData,
       nonce,
     }
 
