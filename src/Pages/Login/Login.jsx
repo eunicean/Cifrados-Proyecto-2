@@ -4,7 +4,8 @@ import { registerWithKeyPair } from '../../services/authService'
 import { decryptPrivateKey } from '../../utils/privateKeyEncryption'
 import './Login.css'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+const API_URL =
+  import.meta.env.VITE_API_URL || 'https://cifrados-proyecto-2.onrender.com'
 
 const emptyRegisterForm = {
   display_name: '',

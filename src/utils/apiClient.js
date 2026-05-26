@@ -1,4 +1,5 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+const API_URL =
+  import.meta.env.VITE_API_URL || 'https://cifrados-proyecto-2.onrender.com'
 
 export async function apiRequest(endpoint, options = {}) {
   const token = localStorage.getItem('blu_token')
