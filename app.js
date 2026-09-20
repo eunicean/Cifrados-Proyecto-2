@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import crypto from 'node:crypto'
 import express from 'express'
+import rateLimit from 'express-rate-limit'
 import { createClient } from '@supabase/supabase-js'
 import { hashPassword } from './src/auth/passwordHash.js'
 import { loginUser } from './src/auth/loginUser.js'
@@ -34,6 +35,7 @@ function loadLocalEnv() {
 loadLocalEnv()
 
 const app = express()
+app.set('trust proxy', 1)
 const port = process.env.PORT || 3000
 const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change-me'
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
@@ -75,6 +77,45 @@ app.use((req, res, next) => {
 
   next()
 })
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Demasiados intentos de inicio de sesion. Intenta de nuevo en 15 minutos.' },
+})
+
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Demasiados registros desde esta red. Intenta de nuevo mas tarde.' },
+})
+
+const EMAIL_PATTERN = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/
+const NAME_PATTERN = /^[\p{L}\p{N} .'_-]+$/u
+const GROUP_NAME_PATTERN = /^[\p{L}\p{N} .,'_()-]+$/u
+
+function validateEmail(email) {
+  if (email.length > 254 || !EMAIL_PATTERN.test(email)) {
+    throw new Error('Ingresa un correo valido.')
+  }
+}
+
+function validateName(name) {
+  if (name.length > 60 || !NAME_PATTERN.test(name)) {
+    throw new Error('El nombre solo puede tener letras, numeros, espacios y . _ - (maximo 60).')
+  }
+}
+
+function validateGroupName(name) {
+  if (name.length > 50 || !GROUP_NAME_PATTERN.test(name)) {
+    throw new Error('El nombre del grupo solo puede tener letras, numeros y signos basicos (maximo 50).')
+  }
+}
 
 function generateGroupCode(length = 8) {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -161,7 +202,7 @@ async function attachSenderPublicKeys(messages) {
   }))
 }
 
-app.post('/auth/register', async (req, res) => {
+app.post('/auth/register', registerLimiter, async (req, res) => {
   try {
     const name = (req.body.name || req.body.display_name || '').trim()
     const email = (req.body.email || '').trim().toLowerCase()
@@ -170,6 +211,8 @@ app.post('/auth/register', async (req, res) => {
 
     if (!name) throw new Error('Ingresa tu nombre.')
     if (!email) throw new Error('Ingresa tu correo.')
+    validateName(name)
+    validateEmail(email)
     if (!publicKey) throw new Error('Falta la llave publica RSA del usuario.')
 
     const passwordHash = await hashPassword(password)
@@ -195,7 +238,8 @@ app.post('/auth/register', async (req, res) => {
         throw new Error('Ese correo ya esta registrado.')
       }
 
-      throw new Error(error.message)
+      logWarn('auth', 'Error de base de datos al registrar', { detail: error.message })
+      throw new Error('No se pudo completar el registro.')
     }
 
     logInfo('auth', 'Usuario registrado', {
@@ -211,7 +255,7 @@ app.post('/auth/register', async (req, res) => {
   }
 })
 
-app.post('/auth/login', async (req, res) => {
+app.post('/auth/login', loginLimiter, async (req, res) => {
   try {
     const result = await loginUser(req.body, {
       jwtSecret,
@@ -223,7 +267,10 @@ app.post('/auth/login', async (req, res) => {
           .eq('email', email)
           .maybeSingle()
 
-        if (error) throw new Error(error.message)
+        if (error) {
+          logWarn('auth', 'Error de base de datos al iniciar sesion', { detail: error.message })
+          throw new Error('No se pudo iniciar sesion.')
+        }
 
         return data
       },
@@ -245,6 +292,7 @@ app.post('/groups', requireAuth, async (req, res) => {
     const name = (req.body.name || '').trim()
 
     if (!name) throw new Error('Ingresa el nombre del grupo.')
+    validateGroupName(name)
 
     const code = generateGroupCode()
     const keyHash = hashCode(code)
@@ -932,7 +980,7 @@ app.get('/messages/:userId', requireAuth, async (req, res) => {
   }
 })
 
-app.get('/users', async (req, res) => {
+app.get('/users', requireAuth, async (req, res) => {
   try {
     const { data: users, error } = await supabase
       .from('user')
