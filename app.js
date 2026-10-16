@@ -79,8 +79,20 @@ app.use((req, res, next) => {
   next()
 }) 
 
+// CLIENT_ORIGIN admite varios origenes separados por coma; sin configurar solo se permite el frontend local
+const allowedOrigins = new Set(
+  (process.env.CLIENT_ORIGIN || 'http://localhost:5173')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+)
+
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', process.env.CLIENT_ORIGIN || '*')
+  if (allowedOrigins.has(req.headers.origin)) {
+    res.setHeader('Access-Control-Allow-Origin', req.headers.origin)
+  }
+
+  res.setHeader('Vary', 'Origin')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
 
