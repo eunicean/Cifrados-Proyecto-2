@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import crypto from 'node:crypto'
+import { pathToFileURL } from 'node:url'
 import express from 'express'
 import rateLimit from 'express-rate-limit'
 import { createClient } from '@supabase/supabase-js'
@@ -1088,7 +1089,7 @@ app.post('/blockchain/reset', requireAuth, async (req, res) => {
   }
 })
 
-app.listen(port, (error) => {
+function handleListen(error) {
   if (error) {
     logWarn('server', 'No se pudo iniciar la API', { port, detail: error.message })
     process.exit(1)
@@ -1098,4 +1099,11 @@ app.listen(port, (error) => {
     supabaseUrl,
     hasServiceRole: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
   })
-})
+}
+
+export default app
+
+// Solo escucha al ejecutarse con `node app.js`; al importarlo (pruebas) no abre el puerto
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  app.listen(port, handleListen)
+}

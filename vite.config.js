@@ -39,6 +39,14 @@ export default defineConfig(({ mode }) => {
       environment: 'node',
       setupFiles: './src/tests/setupTests.js',
       globals: true,
+      coverage: {
+        provider: 'v8',
+        reporter: ['text', 'lcov'],
+        reportsDirectory: './coverage',
+        // Cuenta todo el codigo fuente, aunque un archivo no tenga pruebas
+        include: ['app.js', 'src/**/*.{js,jsx}'],
+        exclude: ['src/tests/**'],
+      },
     },
   }
 })
