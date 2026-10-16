@@ -4,3 +4,7 @@ dist
 .DS_Store
 /problemas
 Blockchain.sql
+coverage
+.scannerwork
+/docs/reporte
+/docs/enunciados
