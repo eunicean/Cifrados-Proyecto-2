@@ -6,5 +6,5 @@ const lcov = fs.readFileSync(lcovPath, 'utf8')
 
 fs.writeFileSync(
   lcovPath,
-  lcov.replace(/^SF:(.*)$/gm, (_, file) => `SF:${file.replaceAll('\', '/')}`),
+  lcov.replace(/^SF:([^\r\n]*)/gm, (_, file) => `SF:${file.replaceAll('\\', '/')}`),
 )
