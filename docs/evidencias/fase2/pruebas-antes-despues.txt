@@ -1,0 +1,104 @@
+Generado: 2026-10-15 23:52 sobre la rama fase2-correcciones (6e48e40)
+
+==================================================================
+#1 X-Powered-By (commit 1716cff)
+Prueba: src/tests/securityHeadersApi.test.js
+--- ANTES de la correccion ---
+     × #1: no revela el framework en X-Powered-By 39ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  1 failed | 2 passed (3)
+--- DESPUES de la correccion ---
+      Tests  3 passed (3)
+
+==================================================================
+#6/#11 Headers de la API (commit 2ab7cb1)
+Prueba: src/tests/securityHeadersApi.test.js
+--- ANTES de la correccion ---
+     × #6: impide que la API se cargue dentro de un iframe 5ms
+     × #11: desactiva el MIME sniffing 9ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 1 passed (3)
+--- DESPUES de la correccion ---
+      Tests  3 passed (3)
+
+==================================================================
+#12 JWT_SECRET por defecto (commit 37ecea4)
+Prueba: src/tests/jwtSecretConfig.test.js
+--- ANTES de la correccion ---
+     × no inicia si falta JWT_SECRET 144ms
+     × no inicia con un JWT_SECRET de menos de 32 caracteres 3ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 1 passed (3)
+--- DESPUES de la correccion ---
+      Tests  3 passed (3)
+
+==================================================================
+#6/#7/#11 Headers del frontend (commit e6ff292)
+Prueba: src/tests/securityHeadersFrontend.test.js
+--- ANTES de la correccion ---
+     × #6: la pagina no se puede cargar dentro de un iframe 39ms
+     × #11: desactiva el MIME sniffing 33ms
+     × solo permite scripts del mismo origen 1ms
+     × incluye frame-ancestors, que no funciona dentro de <meta> 0ms
+     × permite conectarse a la API que usa el frontend 0ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  5 failed (5)
+--- DESPUES de la correccion ---
+      Tests  5 passed (5)
+
+==================================================================
+#13 Autorizacion de tamper/reset (commit 4ca8210)
+Prueba: src/tests/blockchainDemoAuthorization.test.js
+--- ANTES de la correccion ---
+     × un usuario normal no puede alterar un bloque 28ms
+     × un usuario normal no puede reiniciar la cadena 3ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  2 failed | 2 passed (4)
+--- DESPUES de la correccion ---
+      Tests  4 passed (4)
+
+==================================================================
+#15 Errores de base de datos (commit 0d6dd04)
+Prueba: src/tests/databaseErrorDisclosure.test.js
+--- ANTES de la correccion ---
+     × POST /groups 34ms
+     × GET /groups 4ms
+     × GET /direct-conversations 6ms
+     × POST /direct-conversations 6ms
+     × GET /groups/search?name=Gru 7ms
+     × POST /groups/c1/join 5ms
+     × GET /groups/c1/messages 5ms
+     × GET /groups/c1/members/keys 6ms
+     × POST /messages 7ms
+     × GET /messages/u1 2ms
+     × GET /users 3ms
+⎯⎯⎯⎯⎯⎯ Failed Tests 11 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  11 failed | 1 passed (12)
+--- DESPUES de la correccion ---
+      Tests  12 passed (12)
+
+==================================================================
+#16 CORS (commit 5037aa3)
+Prueba: src/tests/corsPolicy.test.js
+--- ANTES de la correccion ---
+     × no autoriza a un sitio externo 170ms
+     × autoriza solo al frontend configurado en CLIENT_ORIGIN 9ms
+     × sin CLIENT_ORIGIN no usa el comodin * 6ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  3 failed (3)
+--- DESPUES de la correccion ---
+      Tests  3 passed (3)
+
+==================================================================
+#3 #4 #8 #9 #10 Dependencias (commits eb96c68, 7b43577, c1dbf80)
+Prueba: src/tests/vulnerableDependencies.test.js
+--- ANTES (package-lock.json de la Fase 1, commit 7c8589f) ---
+     × #3: proxy-addr >= 2.0.8 (GHSA-jqcg-44mw-7w3h) 6ms
+     × #4: react-router >= 7.18.2 (GHSA-wrjc-x8rr-h8h6) 1ms
+     × #8: ws >= 8.20.2 (GHSA-96hv-2xvq-fx4p) 1ms
+     × #9: qs >= 6.15.4 (GHSA-4mjr-xmp4-gh2g) 1ms
+     × #10: body-parser >= 2.2.3 (GHSA-v422-hmwv-36x6) 1ms
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 5 ⎯⎯⎯⎯⎯⎯⎯
+      Tests  5 failed (5)
+--- DESPUES (package-lock.json actual) ---
+      Tests  5 passed (5)
