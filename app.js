@@ -166,6 +166,23 @@ function requireAuth(req, res, next) {
   }
 }
 
+// Solo los IDs de BLOCKCHAIN_ADMIN_IDS pueden alterar o reiniciar la cadena de demo
+const blockchainAdminIds = new Set(
+  (process.env.BLOCKCHAIN_ADMIN_IDS || '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean),
+)
+
+function requireBlockchainAdmin(req, res, next) {
+  if (blockchainAdminIds.has(String(req.auth.sub))) {
+    next()
+    return
+  }
+
+  sendError(res, new Error('No tienes permiso para modificar la blockchain.'), 403)
+}
+
 async function ensureChannelMember(channelId, userId) {
   logInfo('authz', 'Verificando membresia de canal', {
     channelId,
@@ -1045,7 +1062,7 @@ app.get('/blockchain/verify', requireAuth, async (req, res) => {
   }
 })
 
-app.post('/blockchain/tamper/:index', requireAuth, async (req, res) => {
+app.post('/blockchain/tamper/:index', requireAuth, requireBlockchainAdmin, async (req, res) => {
   try {
     const block = await tamperBlockForDemo(req.params.index)
     const verification = await verifyFullBlockchain()
@@ -1067,7 +1084,7 @@ app.post('/blockchain/tamper/:index', requireAuth, async (req, res) => {
   }
 })
 
-app.post('/blockchain/reset', requireAuth, async (req, res) => {
+app.post('/blockchain/reset', requireAuth, requireBlockchainAdmin, async (req, res) => {
   try {
     const genesisBlock = await resetBlockchainForDemo()
     const verification = await verifyFullBlockchain()
