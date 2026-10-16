@@ -1089,7 +1089,7 @@ app.post('/blockchain/reset', requireAuth, async (req, res) => {
   }
 })
 
-function handleListen(error) {
+export function handleListen(error) {
   if (error) {
     logWarn('server', 'No se pudo iniciar la API', { port, detail: error.message })
     process.exit(1)

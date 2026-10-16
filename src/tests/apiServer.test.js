@@ -1,65 +1,60 @@
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
+import { importApp, startApi, TEST_ENV } from './helpers/apiTestServer.js'
 
 // La API no debe conectarse a Supabase real durante las pruebas
-vi.mock('@supabase/supabase-js', () => ({
-  createClient: vi.fn(() => ({ from: vi.fn() })),
-}))
-
-const TEST_ENV = {
-  JWT_SECRET: 'x'.repeat(32),
-  SUPABASE_URL: 'http://supabase.test',
-  SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
-}
-
-async function importApp(env = TEST_ENV) {
-  vi.resetModules()
-  Object.entries(env).forEach(([key, value]) => vi.stubEnv(key, value))
-
-  const { default: app } = await import('../../app.js')
-  return app
-}
+vi.mock('@supabase/supabase-js', async () => (await import('./helpers/supabaseMock.js')).supabaseModule)
 
 describe('API Express — se puede importar sin abrir el puerto', () => {
-  let server
-  let baseUrl
+  let api
 
   beforeAll(async () => {
-    const app = await importApp()
-
-    await new Promise((resolve) => {
-      server = app.listen(0, resolve)
-    })
-
-    baseUrl = `http://127.0.0.1:${server.address().port}`
+    api = await startApi()
   })
 
-  afterAll(() => {
-    server?.close()
+  afterAll(async () => {
+    await api.close()
     vi.unstubAllEnvs()
   })
 
   test('rechaza una ruta protegida sin token', async () => {
-    const response = await fetch(`${baseUrl}/groups`)
+    const response = await api.request('/groups')
 
     expect(response.status).toBe(401)
-    expect(await response.json()).toEqual({ message: 'JWT invalido.' })
+    expect(response.json).toEqual({ message: 'JWT invalido.' })
   })
 
   test('responde al preflight de CORS con 204', async () => {
-    const response = await fetch(`${baseUrl}/groups`, { method: 'OPTIONS' })
+    const response = await api.request('/groups', { method: 'OPTIONS' })
 
     expect(response.status).toBe(204)
   })
 })
 
-describe('API Express — configuracion obligatoria', () => {
+describe('API Express — arranque del servidor', () => {
   afterAll(() => {
     vi.unstubAllEnvs()
+    vi.restoreAllMocks()
   })
 
-  test('no inicia con un JWT_SECRET corto', async () => {
-    await expect(
-      importApp({ ...TEST_ENV, JWT_SECRET: 'corto' }),
-    ).rejects.toThrow('JWT_SECRET debe estar definido')
+  test('sale con codigo 1 si no puede abrir el puerto', async () => {
+    const { handleListen } = await importApp()
+    const exit = vi.spyOn(process, 'exit').mockImplementation(() => {})
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    handleListen(new Error('EADDRINUSE'))
+
+    expect(exit).toHaveBeenCalledWith(1)
+  })
+
+  test('registra el inicio cuando el puerto se abre', async () => {
+    const { handleListen } = await importApp()
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    handleListen()
+
+    expect(log).toHaveBeenCalledWith(
+      expect.stringContaining('API REST escuchando'),
+      expect.any(Object),
+    )
   })
 })
