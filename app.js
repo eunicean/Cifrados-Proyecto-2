@@ -35,9 +35,14 @@ function loadLocalEnv() {
 loadLocalEnv()
 
 const app = express()
+app.disable('x-powered-by')
 app.set('trust proxy', 1)
 const port = process.env.PORT || 3000
-const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change-me'
+const jwtSecret = process.env.JWT_SECRET
+
+if (!jwtSecret || jwtSecret.length < 32) {
+  throw new Error('JWT_SECRET debe estar definido y tener al menos 32 caracteres.')
+}
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const supabaseKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
@@ -64,6 +69,14 @@ function shortValue(value) {
 }
 
 app.use(express.json({ limit: '1mb' }))
+
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('X-Frame-Options', 'DENY')
+  res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'")
+  res.setHeader('Referrer-Policy', 'no-referrer')
+  next()
+}) 
 
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', process.env.CLIENT_ORIGIN || '*')
@@ -1075,7 +1088,12 @@ app.post('/blockchain/reset', requireAuth, async (req, res) => {
   }
 })
 
-app.listen(port, () => {
+app.listen(port, (error) => {
+  if (error) {
+    logWarn('server', 'No se pudo iniciar la API', { port, detail: error.message })
+    process.exit(1)
+  }
+
   logInfo('server', `API REST escuchando en http://localhost:${port}`, {
     supabaseUrl,
     hasServiceRole: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
