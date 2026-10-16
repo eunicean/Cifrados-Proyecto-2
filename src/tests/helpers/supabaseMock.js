@@ -24,7 +24,8 @@ export const defaultRow = {
   encrypted_key_base64: 'a2V5',
 }
 
-export const db = {
+// Compartido via globalThis: vi.resetModules() crea otra instancia de este modulo para app.js
+globalThis.__supabaseMockDb ??= {
   queue: [],
   calls: [],
   reset() {
@@ -32,6 +33,8 @@ export const db = {
     this.calls = []
   },
 }
+
+export const db = globalThis.__supabaseMockDb
 
 export const dbFailure = () => ({ error: { message: SECRET_DB_DETAIL, code: 'XX000' } })
 
