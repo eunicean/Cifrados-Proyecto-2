@@ -38,10 +38,11 @@ describe('Encabezados de seguridad del frontend (servidor de Vite)', () => {
 
 describe('#7: el build de produccion envia la CSP como encabezado HTTP', () => {
   const config = viteConfig({ mode: 'production', command: 'serve' })
-  const csp = config.preview.headers['Content-Security-Policy']
+  const previewHeaders = config.preview?.headers ?? {}
+  const csp = previewHeaders['Content-Security-Policy'] ?? ''
 
   test('solo permite scripts del mismo origen', () => {
-    const scriptSrc = csp.split('; ').find((directive) => directive.startsWith('script-src'))
+    const scriptSrc = csp.split('; ').find((directive) => directive.startsWith('script-src')) ?? ''
 
     expect(scriptSrc).toBe("script-src 'self'")
     expect(csp).toContain("object-src 'none'")
@@ -49,7 +50,7 @@ describe('#7: el build de produccion envia la CSP como encabezado HTTP', () => {
 
   test('incluye frame-ancestors, que no funciona dentro de <meta>', () => {
     expect(csp).toContain("frame-ancestors 'none'")
-    expect(config.preview.headers['X-Frame-Options']).toBe('DENY')
+    expect(previewHeaders['X-Frame-Options']).toBe('DENY')
   })
 
   test('permite conectarse a la API que usa el frontend', () => {
