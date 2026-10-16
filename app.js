@@ -1088,7 +1088,12 @@ app.post('/blockchain/reset', requireAuth, async (req, res) => {
   }
 })
 
-app.listen(port, () => {
+app.listen(port, (error) => {
+  if (error) {
+    logWarn('server', 'No se pudo iniciar la API', { port, detail: error.message })
+    process.exit(1)
+  }
+
   logInfo('server', `API REST escuchando en http://localhost:${port}`, {
     supabaseUrl,
     hasServiceRole: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
