@@ -38,7 +38,11 @@ const app = express()
 app.disable('x-powered-by')
 app.set('trust proxy', 1)
 const port = process.env.PORT || 3000
-const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change-me'
+const jwtSecret = process.env.JWT_SECRET
+
+if (!jwtSecret || jwtSecret.length < 32) {
+  throw new Error('JWT_SECRET debe estar definido y tener al menos 32 caracteres.')
+}
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
 const supabaseKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
