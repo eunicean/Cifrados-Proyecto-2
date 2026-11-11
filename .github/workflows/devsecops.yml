@@ -45,7 +45,7 @@ jobs:
         --exclude docs --exclude src/tests --exclude dist
         --metrics off
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Semgrep (reporte SARIF + JSON)
         run: |
           semgrep scan $SEMGREP_FLAGS --sarif --output semgrep.sarif
@@ -53,7 +53,7 @@ jobs:
       - name: Semgrep (gate)
         continue-on-error: ${{ env.SECURITY_GATE != 'bloqueo' }}
         run: semgrep scan $SEMGREP_FLAGS --severity ERROR --error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: semgrep
@@ -66,8 +66,8 @@ jobs:
     name: SCA (npm audit)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
@@ -87,7 +87,7 @@ jobs:
           altos=$(jq '.metadata.vulnerabilities.high + .metadata.vulnerabilities.critical' npm-audit-prod.json)
           echo "Vulnerabilidades high o critical en producción: $altos"
           test "$altos" -eq 0
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: sca
@@ -98,9 +98,9 @@ jobs:
     name: SBOM (Syft, CycloneDX)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Generar SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: .
           format: cyclonedx-json
@@ -120,7 +120,7 @@ jobs:
       APP_URL: http://localhost:8080/login
       API_URL: http://localhost:8080/api/groups # 401 sin JWT = API viva detrás del WAF
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Crear .env efímero (sin secretos reales)
         run: |
           cat > .env <<EOF
@@ -167,7 +167,7 @@ jobs:
       - name: Logs del WAF (evidencia)
         if: always()
         run: docker logs cifrados-waf > zap/waf.log 2>&1 || true
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: zap
