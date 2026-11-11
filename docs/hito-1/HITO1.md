@@ -248,7 +248,7 @@ flowchart LR
 
 | ID | STRIDE | Amenaza | Control existente | P | I | Riesgo | Estado |
 |---|---|---|---|---|---|---|---|
-| T-24 | E | Con la llave pública (anon/publishable) se leen o escriben tablas directamente si RLS está deshabilitado (por ejemplo, los hashes de contraseña en user) | Ninguno en el código; depende de la configuración de Supabase | [VERIFICAR] | A | [VERIFICAR] | **Verificar RLS en el panel de Supabase** |
+| T-24 | T | La tabla blockchain_blocks tiene RLS deshabilitado con la llave pública (anon/publishable) se pueden leer, insertar, modificar o borrar bloques directamente en Supabase, sin pasar por la API ni por requireBlockchainAdmin, y recalcular los hashes para que la cadena siga pareciendo válida | RLS activo en las demás tablas; /blockchain/verify detecta cambios aislados, pero no una cadena reescrita completa | M | A | Alta | Confirmado en la configuración de Supabase; pendiente PoC del Red Team |
 | T-25 | I | Fuga de JWT_SECRET o de la llave de servicio por el repo o la imagen Docker | .gitignore y .dockerignore excluyen .env | B | A | Media | Mitigada; el pipeline del Hito 2 agrega búsqueda de secretos |
 
 ### P5 - Logs y monitoreo
@@ -263,11 +263,11 @@ flowchart LR
 | STRIDE | Amenazas |
 |---|---|
 | Spoofing | T-02, T-05, T-09, T-10 |
-| Tampering | T-03, T-12, T-18, T-23 |
+| Tampering | T-03, T-12, T-18, T-23, T-24 |
 | Repudiation | T-22, T-26 |
 | Information disclosure | T-01, T-04, T-11, T-14, T-15, T-17, T-20, T-25, T-27 |
 | Denial of service | T-06, T-08, T-19 |
-| Elevation of privilege | T-07, T-13, T-16, T-21, T-24 |
+| Elevation of privilege | T-07, T-13, T-16, T-21 |
 
 ---
 
@@ -279,7 +279,7 @@ Cada requisito se puede verificar (con una prueba, una PoC o una revisión) y se
 |---|---|---|---|
 | RS-01 | Todas las rutas, excepto /auth/register y /auth/login, deben rechazar con 401 las peticiones sin un JWT válido | T-10 | Prueba automatizada y PoC |
 | RS-02 | La API debe responder 403 cuando un usuario accede a mensajes, llaves o miembros de un canal del que no es miembro | T-13 | CA-03 |
-| RS-03 | Los JWT deben expirar en un tiempo máximo de [COMPLETAR, p. ej. 1 h] y debe existir un mecanismo de revocación o cierre de sesión en el servidor | T-02 | Revisión de código y prueba |
+| RS-03 | Los JWT deben expirar en un tiempo máximo de 1h y debe existir un mecanismo de revocación o cierre de sesión en el servidor | T-02 | Revisión de código y prueba |
 | RS-04 | Toda ruta autenticada debe tener un límite de peticiones por usuario o por IP; login y registro mantienen sus límites actuales | T-06, T-09, T-16, T-19 | CA-04, CA-08 |
 | RS-05 | La búsqueda de grupos no debe devolver canales directos y debe escapar los comodines % y _ | T-14 | CA-07 |
 | RS-06 | La API no debe exponer el correo de usuarios con los que no se comparte un canal | T-11, T-15 | PoC sobre GET /users |
@@ -290,13 +290,12 @@ Cada requisito se puede verificar (con una prueba, una PoC o una revisión) y se
 | RS-11 | RLS debe estar habilitado en todas las tablas de Supabase y la llave pública no debe permitir leer user.password | T-24 | Consulta directa con la llave anon |
 | RS-12 | Ningún secreto vive en el repositorio ni en las imágenes; el pipeline falla si detecta uno | T-25 | Escáner de secretos en CI (Hito 2) |
 | RS-13 | El WAF registra todas las peticiones sospechosas y los logs llegan a Elastic con la IP real, la hora y el payload | T-05, T-26 | Hito 3 |
-| RS-14 | Las contraseñas deben tener al menos [COMPLETAR, p. ej. 12] caracteres para proteger también la llave privada cifrada | T-04, T-09 | Prueba unitaria |
+| RS-14 | Las contraseñas deben tener al menos 8 caracteres para proteger también la llave privada cifrada | T-04, T-09 | Prueba unitaria |
 
 ---
 
 ## Casos de abuso
 
-Formato **Dado / Cuando / Entonces**. "Resultado esperado" es lo que debe ocurrir si los controles funcionan; el Red Team lo prueba en el Hito 2 y el Blue Team muestra la detección en el Hito 3.
 
 ### CA-01 · Inyección SQL en el inicio de sesión
 - **Dado** un atacante sin cuenta frente a `http://localhost:8080`
@@ -343,7 +342,7 @@ Formato **Dado / Cuando / Entonces**. "Resultado esperado" es lo que debe ocurri
 
 ### CA-08 · Escaneo automatizado
 - **Dado** un atacante con una herramienta de escaneo (por ejemplo, ZAP o nikto) apuntando a `localhost:8080`
-- **Cuando** envía más de [COMPLETAR, p. ej. 100] peticiones en 1 minuto, con muchos 404 y 403
+- **Cuando** envía más de 100 peticiones en 1 minuto, con muchos 404 y 403
 - **Entonces** el SIEM genera una alerta de escaneo por IP y el WAF registra las firmas del escáner (reglas 913xxx).
 - Requisitos: RS-04, RS-13 · Amenaza: T-06
 
