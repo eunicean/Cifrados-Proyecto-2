@@ -1,0 +1,46 @@
+# Filebeat: lee los logs de los contenedores del WAF y la API y los envia a Elasticsearch.
+filebeat.autodiscover:
+  providers:
+    - type: docker
+      templates:
+        - condition:
+            equals:
+              docker.container.name: cifrados-waf
+          config:
+            - type: container
+              paths:
+                - /var/lib/docker/containers/${data.docker.container.id}/*.log
+              fields: { app_component: waf }
+              fields_under_root: true
+              processors:
+                # Las lineas del audit log de ModSecurity son JSON ({"transaction": {...}})
+                - decode_json_fields:
+                    fields: ["message"]
+                    target: "modsec"
+                    max_depth: 10
+                    overwrite_keys: false
+                    add_error_key: false
+        - condition:
+            equals:
+              docker.container.name: cifrados-api
+          config:
+            - type: container
+              paths:
+                - /var/lib/docker/containers/${data.docker.container.id}/*.log
+              fields: { app_component: api }
+              fields_under_root: true
+
+processors:
+  - add_docker_metadata: ~
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+  username: elastic
+  password: "${ELASTIC_PASSWORD}"
+  index: "cifrados-logs-%{+yyyy.MM.dd}"
+
+setup.ilm.enabled: false
+setup.template.name: "cifrados-logs"
+setup.template.pattern: "cifrados-logs-*"
+setup.template.settings:
+  index.number_of_replicas: 0

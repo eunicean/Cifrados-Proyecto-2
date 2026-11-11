@@ -1,0 +1,12 @@
+# Nunca meter secretos ni artefactos locales en las imagenes
+.env
+.env.*
+!.env.example
+node_modules
+dist
+coverage
+.scannerwork
+.git
+docs
+entorno-blue-team/filebeat
+*.sarif

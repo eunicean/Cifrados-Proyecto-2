@@ -1,0 +1,155 @@
+# Entorno Blue Team - Proyecto Final (Cifrados-Proyecto-2 en lugar de Juice Shop)
+#
+#   Navegador ──► waf (ModSecurity + OWASP CRS, :8080) ──► web (nginx: frontend + /api) ──► api (Express :3001) ──► Supabase
+#                   │ logs (stdout, JSON)
+#                   ▼
+#                filebeat ──► elasticsearch ──► kibana (:5601)
+#
+# Uso (desde esta carpeta, usando el .env de la raiz del repo):
+#   Solo app + WAF (hito de Configuracion):
+#     docker compose --env-file ../.env up -d --build
+#   App + WAF + SIEM (Hito 3):
+#     docker compose --env-file ../.env --profile siem up -d --build
+#
+# Ver README.md de esta carpeta.
+
+name: cifrados-blue-team
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: entorno-blue-team/api.Dockerfile
+    container_name: cifrados-api
+    env_file: ../.env
+    environment:
+      PORT: "3001"
+      # El navegador habla con el WAF, asi que ese es el unico origen permitido
+      CLIENT_ORIGIN: http://localhost:8080
+    expose:
+      - "3001"
+    restart: unless-stopped
+    networks: [app]
+
+  web:
+    build:
+      context: ..
+      dockerfile: entorno-blue-team/web.Dockerfile
+      args:
+        # El frontend llama a la API a traves del WAF (/api se reenvia a api:3001)
+        VITE_API_URL: http://localhost:8080/api
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:?Falta VITE_SUPABASE_URL en ../.env}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY:?Falta VITE_SUPABASE_PUBLISHABLE_KEY en ../.env}
+    container_name: cifrados-web
+    depends_on: [api]
+    expose:
+      - "80"
+    restart: unless-stopped
+    networks: [app]
+
+  waf:
+    # Fijar una etiqueta con fecha (p. ej. 4.x.y-nginx-alpine-AAAAMMDDHHMM) para reproducibilidad
+    image: owasp/modsecurity-crs:nginx-alpine
+    container_name: cifrados-waf
+    depends_on: [web]
+    environment:
+      BACKEND: http://web:80
+      PORT: "8080"
+      # DetectionOnly al inicio (Hito 3: luego cambiar a On con WAF_MODE=On en ../.env)
+      MODSEC_RULE_ENGINE: ${WAF_MODE:-DetectionOnly}
+      PARANOIA: ${WAF_PARANOIA:-1}
+      ANOMALY_INBOUND: ${WAF_ANOMALY_INBOUND:-5}
+      ANOMALY_OUTBOUND: ${WAF_ANOMALY_OUTBOUND:-4}
+      # Audit log en JSON por stdout: Filebeat lo recoge de los logs del contenedor
+      MODSEC_AUDIT_ENGINE: RelevantOnly
+      MODSEC_AUDIT_LOG: /dev/stdout
+      MODSEC_AUDIT_LOG_FORMAT: JSON
+      MODSEC_AUDIT_LOG_TYPE: Serial
+    volumes:
+      # Exclusiones para falsos positivos (Hito 3). Se cargan despues del CRS.
+      - ./waf/RESPONSE-999-EXCLUSION-RULES-AFTER-CRS.conf:/etc/modsecurity.d/owasp-crs/rules/RESPONSE-999-EXCLUSION-RULES-AFTER-CRS.conf:ro
+    ports:
+      - "8080:8080"
+    labels:
+      co.elastic.logs/enabled: "true"
+    restart: unless-stopped
+    networks: [app]
+
+  # ---------------------------------------------------------------- SIEM (perfil "siem")
+  setup:
+    # Asigna la contrasena del usuario kibana_system y termina
+    profiles: [siem]
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION:-8.15.3}
+    depends_on: [elasticsearch]
+    environment:
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:?Falta ELASTIC_PASSWORD en ../.env}
+      KIBANA_PASSWORD: ${KIBANA_PASSWORD:?Falta KIBANA_PASSWORD en ../.env}
+    command: >
+      bash -c '
+        until curl -s -u "elastic:$${ELASTIC_PASSWORD}" http://elasticsearch:9200 | grep -q cluster_name; do
+          echo "Esperando a Elasticsearch..."; sleep 5;
+        done;
+        until curl -s -X POST -u "elastic:$${ELASTIC_PASSWORD}" -H "Content-Type: application/json"
+          http://elasticsearch:9200/_security/user/kibana_system/_password
+          -d "{\"password\":\"$${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 5; done;
+        echo "Listo";
+      '
+    networks: [siem]
+
+  elasticsearch:
+    profiles: [siem]
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION:-8.15.3}
+    container_name: cifrados-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "true"
+      # Laboratorio local: sin TLS en HTTP. No usar asi en produccion.
+      xpack.security.http.ssl.enabled: "false"
+      xpack.license.self_generated.type: basic
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:?Falta ELASTIC_PASSWORD en ../.env}
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+    ports:
+      - "127.0.0.1:9200:9200"
+    mem_limit: 2g
+    networks: [siem]
+
+  kibana:
+    profiles: [siem]
+    image: docker.elastic.co/kibana/kibana:${ELASTIC_VERSION:-8.15.3}
+    container_name: cifrados-kibana
+    depends_on: [setup]
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      ELASTICSEARCH_USERNAME: kibana_system
+      ELASTICSEARCH_PASSWORD: ${KIBANA_PASSWORD:?Falta KIBANA_PASSWORD en ../.env}
+      # Necesaria para reglas de alerta/deteccion (minimo 32 caracteres)
+      XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY:?Falta KIBANA_ENCRYPTION_KEY en ../.env}
+      XPACK_SECURITY_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY}
+      XPACK_REPORTING_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY}
+    ports:
+      - "127.0.0.1:5601:5601"
+    networks: [siem]
+
+  filebeat:
+    profiles: [siem]
+    image: docker.elastic.co/beats/filebeat:${ELASTIC_VERSION:-8.15.3}
+    container_name: cifrados-filebeat
+    user: root
+    depends_on: [setup]
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    environment:
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD}
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [siem]
+
+volumes:
+  esdata:
+
+networks:
+  app:
+  siem:
