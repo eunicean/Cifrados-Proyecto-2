@@ -1,7 +1,7 @@
 # Hito 2 · PoC del Red Team
 
 **Aplicación:** Cifrados-Proyecto-2 · **Destino:** `http://localhost:8080` (WAF en `DetectionOnly`) · **Atacante:** Carol RT (usuario autenticado sin privilegios)
-**Herramientas:** OWASP ZAP 2.17.0 (reconocimiento y escaneo) → Burp Suite Community 2026.10.1 (confirmación en Repeater e Intruder) → Postman (repetición para el Blue Team).
+**Herramientas:** OWASP ZAP 2.17.0 (reconocimiento y escaneo) → Burp Suite Community 2026.10.1 (confirmación en Repeater e Intruder) → Postman (repetición para el Blue Team, colección [`postman/`](postman/), corrida del 13-nov 15:40:56–15:41:01).
 **Clasificación:** OWASP Top 10:2025, CWE y CVSS v3.1 (calculadora de FIRST). Horas en America/Guatemala (UTC-6). Detalle de cada envío en [`bitacora.md`](bitacora.md).
 
 ## Resumen
@@ -49,7 +49,7 @@ Authorization: Bearer <JWT de Carol>
 | I | None | Solo lectura |
 | A | None | Sin efecto en disponibilidad |
 
-**Evidencia:** `burp/poc-01a-users.png`, `burp/poc-01b-users.png`. Postman: _pendiente_.
+**Evidencia:** `burp/poc-01a-users.png`, `burp/poc-01b-users.png`. Postman: **15:40:57**, 200, 2259 bytes.
 **Corrección sugerida (H4):** devolver solo los usuarios con los que se comparte un canal, o buscar por correo exacto sin listar, y nunca exponer `email` de terceros.
 
 ---
@@ -89,7 +89,7 @@ Authorization: Bearer <JWT de Carol>
 | A | None | Sin efecto |
 
 **Resultado negativo relacionado:** los grupos que creó el Active Scan se guardaron con nombres como `RT-Carol' UNION ALL select NULL --` de forma literal. El cliente de Supabase parametriza, **no hay SQLi** (CA-01 y RS-08 se cumplen).
-**Evidencia:** `burp/poc-02a-search-direct.png`, `burp/poc-02b-search-wildcard.png`. Postman: _pendiente_.
+**Evidencia:** `burp/poc-02a-search-direct.png`, `burp/poc-02b-search-wildcard.png`. Postman: **15:40:58** (`direct`, 200, 519 bytes) y **15:40:58** (`%25`, 200, 3901 bytes).
 **Corrección sugerida (H4):** excluir los canales `direct:` de la búsqueda, escapar `%`, `_` y `\`, exigir una longitud mínima y no devolver `created_by`.
 
 ---
@@ -133,7 +133,7 @@ Se repite con `{"recipient_email":"noexiste@example.com"}`.
 | I | None | Se valora la enumeración (la creación del canal se trata en el PoC-05) |
 | A | None | Sin efecto |
 
-**Evidencia:** `burp/poc-03a-enum-existe.png`, `burp/poc-03b-enum-no-existe.png`. Postman: _pendiente_.
+**Evidencia:** `burp/poc-03a-enum-existe.png`, `burp/poc-03b-enum-no-existe.png`. Postman: **15:40:58** (existe, 200, 632 bytes) y **15:40:59** (no existe, 400, 37 bytes).
 **Corrección sugerida (H4):** respuesta uniforme para correos existentes e inexistentes, rate limit por usuario y, si se quiere evitar el spam, que la víctima acepte el chat.
 
 ---
@@ -164,7 +164,7 @@ Se repite con `{"recipient_email":"noexiste@example.com"}`.
 | I | Low | Puede publicar mensajes en el grupo |
 | A | None | Sin efecto |
 
-**Evidencia:** `burp/poc-04-intruder-join.png`, logs de `cifrados-api` (31 entradas "Codigo de grupo incorrecto"). Postman: _pendiente_.
+**Evidencia:** `burp/poc-04-intruder-join.png`, logs de `cifrados-api` (31 entradas "Codigo de grupo incorrecto"). Postman: **15:40:59**, 400, sin 429.
 **Corrección sugerida (H4):** limitador por usuario y por grupo (como `loginLimiter`), bloqueo temporal tras N fallos y alerta en el SIEM.
 
 ---
@@ -205,7 +205,7 @@ GET /api/groups/36d5ba34-84b6-462d-8fa3-032d65011c76/messages HTTP/1.1
 | I | None | No altera datos de terceros (los mensajes basura son del atacante) |
 | A | **High** | Pérdida persistente de la bandeja de mensajes de las víctimas; no se recupera sin intervenir la base de datos |
 
-**Evidencia:** `burp/poc-05a-messages-dos.png`, `burp/poc-05b-canal-1000-mensajes.png`, `zap-desktop/` (Active Scan). Postman: _pendiente_.
+**Evidencia:** `burp/poc-05a-messages-dos.png`, `burp/poc-05b-canal-1000-mensajes.png`, `zap-desktop/` (Active Scan). Postman: **15:41:00** (bandeja, 403, 48 bytes) y **15:41:01** (canal, 200, 1 277 390 bytes).
 **Corrección sugerida (H4):** paginar `/messages/:userId` y `/groups/:id/messages` (`limit` y cursor), consultar `message_keys` por canal o por lotes, limitar la frecuencia y el tamaño de `POST /messages` por usuario y devolver `5xx` en lugar de `403` ante errores internos.
 
 ---
@@ -222,4 +222,4 @@ GET /api/groups/36d5ba34-84b6-462d-8fa3-032d65011c76/messages HTTP/1.1
 
 ## Uso de IA
 
-Redacción preparados con apoyo de Claude (Anthropic) a partir de las peticiones y respuestas reales de Burp y de la lectura de `app.js`. El Red Team revisó cada métrica y la ejecución de cada PoC.
+Redacción y clasificación apoyadas con Claude (Anthropic). El Red Team ejecutó cada PoC y revisó cada métrica. Ver `README.md`.

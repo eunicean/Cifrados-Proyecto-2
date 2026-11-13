@@ -35,5 +35,13 @@
 | 2026-11-13 14:47:45 | PoC-04 Sin rate limit en código de grupo (T-16) | Burp Intruder (Sniper, 30 payloads) | `POST localhost:8080/api/groups/53efc8a9…/join` | 31 × 400 'Código de grupo incorrecto' en 21 s (fin 14:48:06), ningún 429; la API registró los 31 intentos |
 | 2026-11-13 14:52:17 | PoC-05 DoS por inundación de mensajes (T-19) | Burp Repeater | `GET localhost:8080/api/messages/7515e782…` | 403 'No se pudo completar la operacion.'; log de la API: Supabase 'Bad Request' (.in() con ≥1000 IDs) |
 | 2026-11-13 14:53:00 | PoC-05 DoS por inundación de mensajes (T-19) | Burp Repeater | `GET localhost:8080/api/groups/36d5ba34…/messages` | 200 OK, 1 277 390 bytes, 1000 mensajes (tope de Supabase) en un canal sin paginación ni límite por miembro |
-
-<!-- Pendiente: filas de la repetición en Postman de cada PoC (hora exacta para el Blue Team). -->
+| 2026-11-13 15:40:56 | Bypass (repetición) | Postman (Desktop Agent), colección Cifrados-WAF | `localhost:3001/groups` | Sin respuesta (Request could not be sent): sin bypass |
+| 2026-11-13 15:40:57 | Login de Carol | Postman | `POST localhost:8080/api/auth/login` | 200, 367 bytes; token guardado en el environment |
+| 2026-11-13 15:40:57 | PoC-01 (repetición) | Postman | `GET localhost:8080/api/users` | 200, 2259 bytes |
+| 2026-11-13 15:40:58 | PoC-02a (repetición) | Postman | `GET localhost:8080/api/groups/search?name=direct` | 200, 519 bytes |
+| 2026-11-13 15:40:58 | PoC-02b (repetición) | Postman | `GET localhost:8080/api/groups/search?name=%25` | 200, 3901 bytes |
+| 2026-11-13 15:40:58 | PoC-03a (repetición) | Postman | `POST localhost:8080/api/direct-conversations` (rt.alice@example.com) | 200, 632 bytes |
+| 2026-11-13 15:40:59 | PoC-03b (repetición) | Postman | `POST localhost:8080/api/direct-conversations` (noexiste@example.com) | 400, 37 bytes |
+| 2026-11-13 15:40:59 | PoC-04 (repetición) | Postman | `POST localhost:8080/api/groups/53efc8a9…/join` (ZZZZZZZ1) | 400, 42 bytes, sin 429 |
+| 2026-11-13 15:41:00 | PoC-05a (repetición) | Postman | `GET localhost:8080/api/messages/7515e782…` | 403, 48 bytes |
+| 2026-11-13 15:41:01 | PoC-05b (repetición) | Postman | `GET localhost:8080/api/groups/36d5ba34…/messages` | 200, 1 277 390 bytes |
