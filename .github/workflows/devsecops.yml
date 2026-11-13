@@ -1,0 +1,174 @@
+# =====================================================================
+# Pipeline DevSecOps — Cifrados-Proyecto-2 (Proyecto Final, Hito 2)
+# =====================================================================
+# Basado en plantilla-pipeline/devsecops.yml y en
+# el workflow adaptado de Secure CRM. Ajustado a este repo:
+#   - Lockfile npm (package-lock.json) -> SCA con npm audit
+#   - App = entorno-blue-team/docker-compose.yml (waf :8080 -> web -> api)
+#
+# Controles:   SAST (Semgrep) · SCA (npm audit) ·
+#              SBOM (Syft, CycloneDX) · DAST (ZAP baseline)
+#
+# Security gate:
+#   SECURITY_GATE: "reporte"  -> corre todo y publica reportes; no falla por hallazgos.
+#   SECURITY_GATE: "bloqueo"  -> falla si un control supera su umbral.
+#
+# Umbrales:
+#   SAST: hallazgos de severidad ERROR (incluye secretos, RS-12)
+#   SCA:  vulnerabilidades high o critical en dependencias de producción
+#   DAST: alertas de ZAP de riesgo alto (riskcode 3)
+# =====================================================================
+name: DevSecOps
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SECURITY_GATE: "reporte" # "reporte" o "bloqueo"
+
+jobs:
+  # ── SAST ───────────────────────────────────────────────────────────
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    container: semgrep/semgrep
+    env:
+      # docs/ guarda reportes HTML de ZAP (ruido); src/tests usa secretos de prueba.
+      SEMGREP_FLAGS: >-
+        --config p/default --config p/owasp-top-ten --config p/javascript
+        --config p/nodejs --config p/secrets
+        --exclude docs --exclude src/tests --exclude dist
+        --metrics off
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Semgrep (reporte SARIF + JSON)
+        run: |
+          semgrep scan $SEMGREP_FLAGS --sarif --output semgrep.sarif
+          semgrep scan $SEMGREP_FLAGS --json --output semgrep.json
+      - name: Semgrep (gate)
+        continue-on-error: ${{ env.SECURITY_GATE != 'bloqueo' }}
+        run: semgrep scan $SEMGREP_FLAGS --severity ERROR --error
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: semgrep
+          path: |
+            semgrep.sarif
+            semgrep.json
+
+  # ── SCA ────────────────────────────────────────────────────────────
+  sca:
+    name: SCA (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: Instalar dependencias
+        run: npm ci --ignore-scripts
+      - name: Auditoría (reporte)
+        run: |
+          # Reporte completo (prod + dev) y reporte de producción (lo que corre en la imagen api)
+          npm audit --json > npm-audit-all.json || true
+          npm audit --omit=dev --json > npm-audit-prod.json || true
+          echo "Todas:      $(jq -c '.metadata.vulnerabilities' npm-audit-all.json)"
+          echo "Producción: $(jq -c '.metadata.vulnerabilities' npm-audit-prod.json)"
+      - name: Auditoría (gate)
+        continue-on-error: ${{ env.SECURITY_GATE != 'bloqueo' }}
+        run: |
+          # npm audit sale con 1 ante cualquier aviso; el umbral se lee del JSON.
+          altos=$(jq '.metadata.vulnerabilities.high + .metadata.vulnerabilities.critical' npm-audit-prod.json)
+          echo "Vulnerabilidades high o critical en producción: $altos"
+          test "$altos" -eq 0
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: sca
+          path: npm-audit-*.json
+
+  # ── SBOM ───────────────────────────────────────────────────────────
+  sbom:
+    name: SBOM (Syft, CycloneDX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Generar SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: .
+          format: cyclonedx-json
+          artifact-name: sbom.cdx.json # queda como artefacto del pipeline
+
+  # ── DAST ───────────────────────────────────────────────────────────
+  # ZAP baseline a través del WAF (DetectionOnly), igual que el camino real.
+  # En CI se usan valores de Supabase ficticios: la API arranca, pero no toca
+  # la BD real. El baseline es pasivo (spider + headers/cookies/CSP), así que
+  # no necesita datos. La sesión de escritorio (ZAP + Burp) del Red Team va
+  # aparte en docs/hito-2.
+  dast:
+    name: DAST (ZAP baseline)
+    runs-on: ubuntu-latest
+    env:
+      # / redirige a /login en el cliente; /login es HTML que el spider recorre.
+      APP_URL: http://localhost:8080/login
+      API_URL: http://localhost:8080/api/groups # 401 sin JWT = API viva detrás del WAF
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Crear .env efímero (sin secretos reales)
+        run: |
+          cat > .env <<EOF
+          VITE_SUPABASE_URL=https://ci-placeholder.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY=ci-placeholder-key
+          JWT_SECRET=$(openssl rand -hex 32)
+          BLOCKCHAIN_ADMIN_IDS=
+          WAF_MODE=DetectionOnly
+          WAF_PARANOIA=1
+          ELASTIC_PASSWORD=ci-unused
+          KIBANA_PASSWORD=ci-unused
+          KIBANA_ENCRYPTION_KEY=ci-unused-ci-unused-ci-unused-ci-unused
+          EOF
+      - name: Levantar la aplicación (api + web + waf)
+        working-directory: entorno-blue-team
+        run: docker compose --env-file ../.env up --build -d
+      - name: Esperar a que la app responda
+        run: |
+          for i in $(seq 1 40); do
+            web=$(curl -s -o /dev/null -w '%{http_code}' "$APP_URL" || true)
+            api=$(curl -s -o /dev/null -w '%{http_code}' "$API_URL" || true)
+            if [ "$web" = "200" ] && [ "$api" = "401" ]; then
+              echo "web=$web api=$api"; exit 0
+            fi
+            sleep 3
+          done
+          echo "La app no respondió (web=$web, api=$api)"
+          docker compose -f entorno-blue-team/docker-compose.yml --env-file .env logs --no-color
+          exit 1
+      - name: ZAP baseline
+        run: |
+          mkdir -p zap && chmod 777 zap
+          docker run --rm --network host -v "$PWD/zap:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py -t "$APP_URL" -r reporte-zap.html -J reporte-zap.json -I \
+            || echo "ZAP terminó con hallazgos"
+      - name: ZAP (gate)
+        continue-on-error: ${{ env.SECURITY_GATE != 'bloqueo' }}
+        run: |
+          # Falla si ZAP reportó alertas de riesgo alto (riskcode 3)
+          altos=$(jq '[.site[].alerts[] | select(.riskcode == "3")] | length' zap/reporte-zap.json)
+          echo "Alertas de riesgo alto: $altos"
+          test "$altos" -eq 0
+      - name: Logs del WAF (evidencia)
+        if: always()
+        run: docker logs cifrados-waf > zap/waf.log 2>&1 || true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: zap
+          path: zap/
