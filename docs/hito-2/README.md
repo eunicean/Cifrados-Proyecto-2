@@ -46,7 +46,7 @@ Basado en la plantilla del curso (`plantilla-pipeline/devsecops.yml`) y en el wo
 
 El workflow arranca en **`SECURITY_GATE: "reporte"`**: corre todos los controles y publica los reportes, pero los pasos de gate usan `continue-on-error`. Pasar a `"bloqueo"` solo exige cambiar esa variable.
 
-**Justificación de los umbrales** (propuesta del Red Team, pendiente de confirmación del Blue Team):
+**Justificación de los umbrales** (acordados con el Blue Team el 2026-11-13):
 
 - **SAST, ERROR:** las reglas `ERROR` de Semgrep son de alta confianza (inyección, secretos, criptografía rota). Los `WARNING` actuales incluyen falsos positivos comprobados (CORS con lista blanca), así que bloquear por ellos frenaría el pipeline sin aportar seguridad. Se revisan a mano.
 - **SCA, high/critical en producción:** solo las dependencias de producción viajan en la imagen `api` y son alcanzables por un atacante. Las de desarrollo (Vite, Vitest) se usan en build y pruebas, quedan en el reporte completo y no bloquean.
