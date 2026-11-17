@@ -65,8 +65,14 @@ services:
       MODSEC_AUDIT_LOG: /dev/stdout
       MODSEC_AUDIT_LOG_FORMAT: JSON
       MODSEC_AUDIT_LOG_TYPE: Serial
+      # Hito 3: la imagen trae CORS "*" en sus respuestas 403 (hallazgo del Red Team en H2).
+      # Solo el propio frontend (mismo origen) necesita leerlas.
+      CORS_HEADER_403_ALLOW_ORIGIN: http://localhost:8080
+      CORS_HEADER_ACCESS_CONTROL_ALLOW_HEADERS: Content-Type,Authorization
     volumes:
-      # Exclusiones para falsos positivos (Hito 3). Se cargan despues del CRS.
+      # Hito 3: reglas propias ANTES del CRS (parche virtual PoC-02 y exclusiones por ruta/campo)
+      - ./waf/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf:/etc/modsecurity.d/owasp-crs/rules/REQUEST-900-EXCLUSION-RULES-BEFORE-CRS.conf:ro
+      # Exclusiones en tiempo de configuracion. Se cargan despues del CRS.
       - ./waf/RESPONSE-999-EXCLUSION-RULES-AFTER-CRS.conf:/etc/modsecurity.d/owasp-crs/rules/RESPONSE-999-EXCLUSION-RULES-AFTER-CRS.conf:ro
     ports:
       - "8080:8080"
@@ -84,16 +90,19 @@ services:
     environment:
       ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:?Falta ELASTIC_PASSWORD en ../.env}
       KIBANA_PASSWORD: ${KIBANA_PASSWORD:?Falta KIBANA_PASSWORD en ../.env}
-    command: >
-      bash -c '
+    # Lista + bloque literal (|): cada linea llega a bash tal cual. Con ">" (plegado) las lineas
+    # mas indentadas conservan el salto y bash recibia la URL y -d como comandos aparte.
+    command:
+      - bash
+      - -c
+      - |
         until curl -s -u "elastic:$${ELASTIC_PASSWORD}" http://elasticsearch:9200 | grep -q cluster_name; do
-          echo "Esperando a Elasticsearch..."; sleep 5;
-        done;
-        until curl -s -X POST -u "elastic:$${ELASTIC_PASSWORD}" -H "Content-Type: application/json"
-          http://elasticsearch:9200/_security/user/kibana_system/_password
-          -d "{\"password\":\"$${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 5; done;
-        echo "Listo";
-      '
+          echo "Esperando a Elasticsearch..."; sleep 5
+        done
+        until curl -s -X POST -u "elastic:$${ELASTIC_PASSWORD}" -H "Content-Type: application/json" http://elasticsearch:9200/_security/user/kibana_system/_password -d "{\"password\":\"$${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do
+          echo "Esperando para asignar la contrasena de kibana_system..."; sleep 5
+        done
+        echo "Listo"
     networks: [siem]
 
   elasticsearch:

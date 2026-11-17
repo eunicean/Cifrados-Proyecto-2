@@ -20,6 +20,10 @@ filebeat.autodiscover:
                     max_depth: 10
                     overwrite_keys: false
                     add_error_key: false
+                # El HTML de la respuesta no aporta a la deteccion y crece el indice
+                - drop_fields:
+                    fields: ["modsec.transaction.response.body"]
+                    ignore_missing: true
         - condition:
             equals:
               docker.container.name: cifrados-api
@@ -29,6 +33,15 @@ filebeat.autodiscover:
                 - /var/lib/docker/containers/${data.docker.container.id}/*.log
               fields: { app_component: api }
               fields_under_root: true
+              processors:
+                # Hito 3: las lineas de src/api/securityLog.js son JSON.
+                # Las demas lineas de la API (texto) quedan solo en `message`.
+                - decode_json_fields:
+                    fields: ["message"]
+                    target: "api"
+                    max_depth: 3
+                    overwrite_keys: false
+                    add_error_key: false
 
 processors:
   - add_docker_metadata: ~
