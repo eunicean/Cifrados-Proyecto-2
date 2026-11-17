@@ -58,6 +58,8 @@ services:
       # DetectionOnly al inicio (Hito 3: luego cambiar a On con WAF_MODE=On en ../.env)
       MODSEC_RULE_ENGINE: ${WAF_MODE:-DetectionOnly}
       PARANOIA: ${WAF_PARANOIA:-1}
+      # CRS 4: el nivel efectivo lo fija BLOCKING_PARANOIA (PARANOIA es el nombre antiguo)
+      BLOCKING_PARANOIA: ${WAF_PARANOIA:-1}
       ANOMALY_INBOUND: ${WAF_ANOMALY_INBOUND:-5}
       ANOMALY_OUTBOUND: ${WAF_ANOMALY_OUTBOUND:-4}
       # Audit log en JSON por stdout: Filebeat lo recoge de los logs del contenedor
