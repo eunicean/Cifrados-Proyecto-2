@@ -1,0 +1,599 @@
+[
+  {
+    "rule_id": "cifrados-01-waf-sqli",
+    "name": "CIF-01 · Inyección SQL detectada por el WAF (CRS 942xxx)",
+    "description": "El WAF (ModSecurity + OWASP CRS) marcó una petición con una regla de inyección SQL. Caso de abuso CA-01, RS-08 y RS-13.",
+    "type": "query",
+    "language": "kuery",
+    "index": [
+      "cifrados-logs-*"
+    ],
+    "query": "app_component : \"waf\" and modsec.transaction.messages.details.tags : \"attack-sqli\"",
+    "severity": "high",
+    "risk_score": 73,
+    "interval": "1m",
+    "from": "now-2m",
+    "enabled": true,
+    "max_signals": 100,
+    "tags": [
+      "Cifrados",
+      "Hito 3",
+      "WAF",
+      "SQLi",
+      "CA-01"
+    ],
+    "author": [
+      "Blue Team Cifrados"
+    ],
+    "license": "",
+    "threat": [
+      {
+        "framework": "MITRE ATT&CK",
+        "tactic": {
+          "id": "TA0001",
+          "name": "Initial Access",
+          "reference": "https://attack.mitre.org/tactics/TA0001/"
+        },
+        "technique": [
+          {
+            "id": "T1190",
+            "name": "Exploit Public-Facing Application",
+            "reference": "https://attack.mitre.org/techniques/T1190/"
+          }
+        ]
+      }
+    ],
+    "false_positives": [
+      "Contraseñas o nombres con comillas y guiones (ver exclusión 10100 en docs/hito-3)"
+    ],
+    "references": []
+  },
+  {
+    "rule_id": "cifrados-02-waf-xss",
+    "name": "CIF-02 · XSS detectado por el WAF (CRS 941xxx)",
+    "description": "El WAF marcó una petición con una regla de Cross-Site Scripting. Caso de abuso CA-02, RS-07 y RS-13.",
+    "type": "query",
+    "language": "kuery",
+    "index": [
+      "cifrados-logs-*"
+    ],
+    "query": "app_component : \"waf\" and modsec.transaction.messages.details.tags : \"attack-xss\"",
+    "severity": "high",
+    "risk_score": 73,
+    "interval": "1m",
+    "from": "now-2m",
+    "enabled": true,
+    "max_signals": 100,
+    "tags": [
+      "Cifrados",
+      "Hito 3",
+      "WAF",
+      "XSS",
+      "CA-02"
+    ],
+    "author": [
+      "Blue Team Cifrados"
+    ],
+    "license": "",
+    "threat": [
+      {
+        "framework": "MITRE ATT&CK",
+        "tactic": {
+          "id": "TA0001",
+          "name": "Initial Access",
+          "reference": "https://attack.mitre.org/tactics/TA0001/"
+        },
+        "technique": [
+          {
+            "id": "T1190",
+            "name": "Exploit Public-Facing Application",
+            "reference": "https://attack.mitre.org/techniques/T1190/"
+          }
+        ]
+      }
+    ],
+    "false_positives": [],
+    "references": []
+  },
+  {
+    "rule_id": "cifrados-03-waf-rafaga-ip",
+    "name": "CIF-03 · Ráfaga o escaneo por IP en el WAF",
+    "description": "Una misma IP generó 50 o más eventos del WAF en 2 minutos (cualquier regla del CRS). Caso de abuso CA-08 (escaneo automatizado) y RS-04.",
+    "type": "threshold",
+    "language": "kuery",
+    "index": [
+      "cifrados-logs-*"
+    ],
+    "query": "app_component : \"waf\" and modsec.transaction.messages.details.ruleId : *",
+    "severity": "medium",
+    "risk_score": 47,
+    "interval": "1m",
+    "from": "now-2m",
+    "enabled": true,
+    "max_signals": 100,
+    "tags": [
+      "Cifrados",
+      "Hito 3",
+      "WAF",
+      "Escaneo",
+      "CA-08"
+    ],
+    "author": [
+      "Blue Team Cifrados"
+    ],
+    "license": "",
+    "threat": [
+      {
+        "framework": "MITRE ATT&CK",
+        "tactic": {
+          "id": "TA0043",
+          "name": "Reconnaissance",
+          "reference": "https://attack.mitre.org/tactics/TA0043/"
+        },
+        "technique": [
+          {
+            "id": "T1595",
+            "name": "Active Scanning",
+            "reference": "https://attack.mitre.org/techniques/T1595/",
+            "subtechnique": [
+              {
+                "id": "T1595.002",
+                "name": "Vulnerability Scanning",
+                "reference": "https://attack.mitre.org/techniques/T1595/002/"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "false_positives": [
+      "En el laboratorio todas las peticiones del host llegan con la IP de la red de Docker; en producción la IP es la del cliente"
+    ],
+    "references": [],
+    "threshold": {
+      "field": [
+        "modsec.transaction.client_ip"
+      ],
+      "value": 50
+    }
+  },
+  {
+    "rule_id": "cifrados-04-waf-escaner",
+    "name": "CIF-04 · Firma de herramienta de escaneo (CRS 913xxx)",
+    "description": "El User-Agent o los encabezados coinciden con una herramienta de escaneo conocida (sqlmap, nikto, etc.). CA-08.",
+    "type": "query",
+    "language": "kuery",
+    "index": [
+      "cifrados-logs-*"
+    ],
+    "query": "app_component : \"waf\" and (modsec.transaction.messages.details.ruleId : 913* or modsec.transaction.messages.details.tags : \"attack-reputation-scanner\")",
+    "severity": "medium",
+    "risk_score": 47,
+    "interval": "1m",
+    "from": "now-2m",
+    "enabled": true,
+    "max_signals": 100,
+    "tags": [
+      "Cifrados",
+      "Hito 3",
+      "WAF",
+      "Escaneo",
+      "CA-08"
+    ],
+    "author": [
+      "Blue Team Cifrados"
+    ],
+    "license": "",
+    "threat": [
+      {
+        "framework": "MITRE ATT&CK",
+        "tactic": {
+          "id": "TA0043",
+          "name": "Reconnaissance",
+          "reference": "https://attack.mitre.org/tactics/TA0043/"
+        },
+        "technique": [
+          {
+            "id": "T1595",
+            "name": "Active Scanning",
+            "reference": "https://attack.mitre.org/techniques/T1595/",
+            "subtechnique": [
+              {
+                "id": "T1595.002",
+                "name": "Vulnerability Scanning",
+                "reference": "https://attack.mitre.org/techniques/T1595/002/"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "false_positives": [],
+    "references": []
+  },
+  {
+    "rule_id": "cifrados-05-busqueda-canales-privados",
+    "name": "CIF-05 · Búsqueda de grupos que intenta listar canales privados (PoC-02)",
+    "description": "Búsqueda con comodines (% _ * \\) o con 'direct', o búsqueda que devolvió canales directos, o petición cortada por el parche virtual 10010 del WAF. PoC-02, CA-07 y RS-05.",
+    "type": "query",
+    "language": "kuery",
+    "index": [
+      "cifrados-logs-*"
+    ],
+    "query": "(app_component : \"waf\" and modsec.transaction.messages.details.ruleId : \"10010\") or (app_component : \"api\" and api.event : \"group_search\" and (api.suspicious : true or api.direct_results > 0))",
+    "severity": "medium",
+    "risk_score": 47,
+    "interval": "1m",
+    "from": "now-2m",
+    "enabled": true,
+    "max_signals": 100,
+    "tags": [
+      "Cifrados",
+      "Hito 3",
+      "API",
+      "WAF",
+      "PoC-02",
+      "CA-07"
+    ],
+    "author": [
+      "Blue Team Cifrados"
+    ],
+    "license": "",
+    "threat": [
+      {
+        "framework": "MITRE ATT&CK",
+        "tactic": {
+          "id": "TA0007",
+          "name": "Discovery",
+          "reference": "https://attack.mitre.org/tactics/TA0007/"
+        },
+        "technique": [
+          {
+            "id": "T1087",
+            "name": "Account Discovery",
+            "reference": "https://attack.mitre.org/techniques/T1087/"
+          }
+        ]
+      }
+    ],
+    "false_positives": [
+      "Un usuario que busca un grupo legítimo con guion bajo en el nombre (Grupo_1) activa api.suspicious"
+    ],
+    "references": []
+  },
+  {
+    "rule_id": "cifrados-06-fuerza-bruta-codigo-grupo",
+    "name": "CIF-06 · Fuerza bruta del código de un grupo privado (PoC-04)",
+    "description": "Un mismo usuario falló 5 o más veces el código de un grupo en 5 minutos. PoC-04, RS-04.",
+    "type": "threshold",
+    "language": "kuery",
+    "index": [
+      "cifrados-logs-*"
+    ],
+    "query": "app_component : \"api\" and api.event : \"group_join_failed\"",
+    "severity": "high",
+    "risk_score": 73,
+    "interval": "1m",
+    "from": "now-5m",
+    "enabled": true,
+    "max_signals": 100,
+    "tags": [
+      "Cifrados",
+      "Hito 3",
+      "API",
+      "PoC-04",
+      "Fuerza bruta"
+    ],
+    "author": [
+      "Blue Team Cifrados"
+    ],
+    "license": "",
+    "threat": [
+      {
+        "framework": "MITRE ATT&CK",
+        "tactic": {
+          "id": "TA0006",
+          "name": "Credential Access",
+          "reference": "https://attack.mitre.org/tactics/TA0006/"
+        },
+        "technique": [
+          {
+            "id": "T1110",
+            "name": "Brute Force",
+            "reference": "https://attack.mitre.org/techniques/T1110/",
+            "subtechnique": [
+              {
+                "id": "T1110.001",
+                "name": "Password Guessing",
+                "reference": "https://attack.mitre.org/techniques/T1110/001/"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "false_positives": [
+      "Un usuario que escribe mal el código varias veces seguidas"
+    ],
+    "references": [],
+    "threshold": {
+      "field": [
+        "api.user_id"
+      ],
+      "value": 5
+    }
+  },
+  {
+    "rule_id": "cifrados-07-enumeracion-usuarios",
+    "name": "CIF-07 · Enumeración de usuarios por correo (PoC-03)",
+    "description": "Un mismo usuario consultó 5 o más correos o IDs inexistentes en 5 minutos al abrir chats directos. PoC-03, CWE-204.",
+    "type": "threshold",
+    "language": "kuery",
+    "index": [
+      "cifrados-logs-*"
+    ],
+    "query": "app_component : \"api\" and api.event : \"direct_lookup_failed\"",
+    "severity": "medium",
+    "risk_score": 47,
+    "interval": "1m",
+    "from": "now-5m",
+    "enabled": true,
+    "max_signals": 100,
+    "tags": [
+      "Cifrados",
+      "Hito 3",
+      "API",
+      "PoC-03",
+      "Enumeración"
+    ],
+    "author": [
+      "Blue Team Cifrados"
+    ],
+    "license": "",
+    "threat": [
+      {
+        "framework": "MITRE ATT&CK",
+        "tactic": {
+          "id": "TA0007",
+          "name": "Discovery",
+          "reference": "https://attack.mitre.org/tactics/TA0007/"
+        },
+        "technique": [
+          {
+            "id": "T1087",
+            "name": "Account Discovery",
+            "reference": "https://attack.mitre.org/techniques/T1087/"
+          }
+        ]
+      }
+    ],
+    "false_positives": [],
+    "references": [],
+    "threshold": {
+      "field": [
+        "api.user_id"
+      ],
+      "value": 5
+    }
+  },
+  {
+    "rule_id": "cifrados-08-inundacion-mensajes",
+    "name": "CIF-08 · Inundación de mensajes por usuario (PoC-05)",
+    "description": "Un mismo usuario envió 30 o más mensajes en 2 minutos. Es la condición que dejó sin bandeja a los miembros del canal en el PoC-05. RS-04, T-19.",
+    "type": "threshold",
+    "language": "kuery",
+    "index": [
+      "cifrados-logs-*"
+    ],
+    "query": "app_component : \"api\" and api.event : \"message_created\"",
+    "severity": "medium",
+    "risk_score": 47,
+    "interval": "1m",
+    "from": "now-2m",
+    "enabled": true,
+    "max_signals": 100,
+    "tags": [
+      "Cifrados",
+      "Hito 3",
+      "API",
+      "PoC-05",
+      "DoS"
+    ],
+    "author": [
+      "Blue Team Cifrados"
+    ],
+    "license": "",
+    "threat": [
+      {
+        "framework": "MITRE ATT&CK",
+        "tactic": {
+          "id": "TA0040",
+          "name": "Impact",
+          "reference": "https://attack.mitre.org/tactics/TA0040/"
+        },
+        "technique": [
+          {
+            "id": "T1499",
+            "name": "Endpoint Denial of Service",
+            "reference": "https://attack.mitre.org/techniques/T1499/",
+            "subtechnique": [
+              {
+                "id": "T1499.003",
+                "name": "Application Exhaustion Flood",
+                "reference": "https://attack.mitre.org/techniques/T1499/003/"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "false_positives": [],
+    "references": [],
+    "threshold": {
+      "field": [
+        "api.user_id"
+      ],
+      "value": 30
+    }
+  },
+  {
+    "rule_id": "cifrados-09-fuerza-bruta-login",
+    "name": "CIF-09 · Fuerza bruta en el inicio de sesión por IP (CA-04)",
+    "description": "Una misma IP falló el inicio de sesión 10 o más veces en 15 minutos. Caso de abuso CA-04, RS-04.",
+    "type": "threshold",
+    "language": "kuery",
+    "index": [
+      "cifrados-logs-*"
+    ],
+    "query": "app_component : \"api\" and api.event : \"auth_login_failed\"",
+    "severity": "high",
+    "risk_score": 73,
+    "interval": "5m",
+    "from": "now-15m",
+    "enabled": true,
+    "max_signals": 100,
+    "tags": [
+      "Cifrados",
+      "Hito 3",
+      "API",
+      "CA-04",
+      "Fuerza bruta"
+    ],
+    "author": [
+      "Blue Team Cifrados"
+    ],
+    "license": "",
+    "threat": [
+      {
+        "framework": "MITRE ATT&CK",
+        "tactic": {
+          "id": "TA0006",
+          "name": "Credential Access",
+          "reference": "https://attack.mitre.org/tactics/TA0006/"
+        },
+        "technique": [
+          {
+            "id": "T1110",
+            "name": "Brute Force",
+            "reference": "https://attack.mitre.org/techniques/T1110/",
+            "subtechnique": [
+              {
+                "id": "T1110.001",
+                "name": "Password Guessing",
+                "reference": "https://attack.mitre.org/techniques/T1110/001/"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "false_positives": [],
+    "references": [],
+    "threshold": {
+      "field": [
+        "api.client_ip"
+      ],
+      "value": 10
+    }
+  },
+  {
+    "rule_id": "cifrados-10-limitador-activado",
+    "name": "CIF-10 · Un limitador de frecuencia cortó peticiones (429)",
+    "description": "La API (express-rate-limit) o nginx respondieron 429. Confirma que la contención funciona y señala al origen de la ráfaga.",
+    "type": "query",
+    "language": "kuery",
+    "index": [
+      "cifrados-logs-*"
+    ],
+    "query": "(app_component : \"api\" and api.event : \"rate_limited\") or (app_component : \"waf\" and modsec.transaction.response.http_code : 429)",
+    "severity": "low",
+    "risk_score": 21,
+    "interval": "1m",
+    "from": "now-2m",
+    "enabled": true,
+    "max_signals": 100,
+    "tags": [
+      "Cifrados",
+      "Hito 3",
+      "API",
+      "WAF",
+      "Contención"
+    ],
+    "author": [
+      "Blue Team Cifrados"
+    ],
+    "license": "",
+    "threat": [
+      {
+        "framework": "MITRE ATT&CK",
+        "tactic": {
+          "id": "TA0040",
+          "name": "Impact",
+          "reference": "https://attack.mitre.org/tactics/TA0040/"
+        },
+        "technique": [
+          {
+            "id": "T1499",
+            "name": "Endpoint Denial of Service",
+            "reference": "https://attack.mitre.org/techniques/T1499/"
+          }
+        ]
+      }
+    ],
+    "false_positives": [],
+    "references": []
+  },
+  {
+    "rule_id": "cifrados-11-rafaga-api-ip",
+    "name": "CIF-11 · Ráfaga de peticiones a la API por IP (CA-08)",
+    "description": "Una misma IP hizo más de 100 peticiones a la API en 1 minuto. CA-08 pide alerta con más de 100 peticiones por minuto.",
+    "type": "threshold",
+    "language": "kuery",
+    "index": [
+      "cifrados-logs-*"
+    ],
+    "query": "app_component : \"api\" and api.event : \"http_request\"",
+    "severity": "medium",
+    "risk_score": 47,
+    "interval": "1m",
+    "from": "now-1m",
+    "enabled": true,
+    "max_signals": 100,
+    "tags": [
+      "Cifrados",
+      "Hito 3",
+      "API",
+      "CA-08",
+      "Escaneo"
+    ],
+    "author": [
+      "Blue Team Cifrados"
+    ],
+    "license": "",
+    "threat": [
+      {
+        "framework": "MITRE ATT&CK",
+        "tactic": {
+          "id": "TA0043",
+          "name": "Reconnaissance",
+          "reference": "https://attack.mitre.org/tactics/TA0043/"
+        },
+        "technique": [
+          {
+            "id": "T1595",
+            "name": "Active Scanning",
+            "reference": "https://attack.mitre.org/techniques/T1595/"
+          }
+        ]
+      }
+    ],
+    "false_positives": [],
+    "references": [],
+    "threshold": {
+      "field": [
+        "api.client_ip"
+      ],
+      "value": 101
+    }
+  }
+]

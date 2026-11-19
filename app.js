@@ -14,6 +14,12 @@ import {
   verifyFullBlockchain,
 } from './src/blockchain/blockchainService.js'
 import { verifyJwt } from './src/utils/jwt.js'
+import {
+  isSuspiciousGroupSearch,
+  maskEmail,
+  requestLogger,
+  securityEvent,
+} from './src/api/securityLog.js'
 
 function loadLocalEnv() {
   if (!fs.existsSync('.env')) return
@@ -69,6 +75,9 @@ function shortValue(value) {
   return String(value).slice(0, 12)
 }
 
+// Hito 3: una linea JSON por peticion para el SIEM (ver src/api/securityLog.js)
+app.use(requestLogger)
+
 app.use(express.json({ limit: '1mb' }))
 
 app.use((req, res, next) => {
@@ -104,6 +113,14 @@ app.use((req, res, next) => {
   next()
 })
 
+// Registra en el SIEM cada vez que un limitador corta una rafaga (evento rate_limited)
+function rateLimitHandler(limiter) {
+  return (req, res, next, options) => {
+    securityEvent('rate_limited', req, { limiter })
+    res.status(options.statusCode).json(options.message)
+  }
+}
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
@@ -111,6 +128,7 @@ const loginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: 'Demasiados intentos de inicio de sesion. Intenta de nuevo en 15 minutos.' },
+  handler: rateLimitHandler('login'),
 })
 
 const registerLimiter = rateLimit({
@@ -119,6 +137,7 @@ const registerLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: 'Demasiados registros desde esta red. Intenta de nuevo mas tarde.' },
+  handler: rateLimitHandler('register'),
 })
 
 const EMAIL_PATTERN = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/
@@ -174,14 +193,15 @@ function sendError(res, error, status = 400) {
 }
 
 function requireAuth(req, res, next) {
-  try {
-    const header = req.headers.authorization || ''
-    const token = header.startsWith('Bearer ') ? header.slice(7) : ''
+  const header = req.headers.authorization || ''
+  const token = header.startsWith('Bearer ') ? header.slice(7) : ''
 
+  try {
     req.auth = verifyJwt(token, jwtSecret)
 
     next()
   } catch (error) {
+    if (token) securityEvent('jwt_invalid', req)
     sendError(res, error, 401)
   }
 }
@@ -334,6 +354,7 @@ app.post('/auth/login', loginLimiter, async (req, res) => {
 
     res.json(result)
   } catch (error) {
+    securityEvent('auth_login_failed', req, { email: maskEmail(req.body?.email) })
     sendError(res, error, 401)
   }
 })
@@ -591,7 +612,12 @@ app.post('/direct-conversations', requireAuth, async (req, res) => {
       await recipientQuery.maybeSingle()
 
     if (recipientError) throw dbError(recipientError)
-    if (!recipient) throw new Error('Contacto no encontrado.')
+    if (!recipient) {
+      securityEvent('direct_lookup_failed', req, {
+        recipient: recipientId ? String(recipientId).slice(0, 64) : maskEmail(recipientEmail),
+      })
+      throw new Error('Contacto no encontrado.')
+    }
     if (recipient.id === req.auth.sub) {
       throw new Error('No puedes iniciar un chat contigo mismo.')
     }
@@ -707,6 +733,13 @@ app.get('/groups/search', requireAuth, async (req, res) => {
       count: channels.length,
     })
 
+    securityEvent('group_search', req, {
+      query: name.slice(0, 100),
+      suspicious: isSuspiciousGroupSearch(name),
+      results: channels.length,
+      direct_results: channels.filter((channel) => channel.name?.startsWith('direct:')).length,
+    })
+
     res.json({
       groups: channels.map((channel) => ({
         ...channel,
@@ -738,6 +771,7 @@ app.post('/groups/:id/join', requireAuth, async (req, res) => {
         groupId: req.params.id,
         userId: req.auth.sub,
       })
+      securityEvent('group_join_failed', req, { group_id: req.params.id })
 
       throw new Error('Código de grupo incorrecto.')
     }
@@ -898,6 +932,7 @@ app.post('/messages', requireAuth, async (req, res) => {
       hash: shortValue(message.plaintext_hash),
       signatureAlgorithm: message.signature_algorithm || 'none',
     })
+    securityEvent('message_created', req, { channel_id: message.channel_id })
 
     let blockchainBlock = null
 
@@ -1038,6 +1073,8 @@ app.get('/users', requireAuth, async (req, res) => {
       .select('id, name, email, key')
 
     if (error) throw dbError(error)
+
+    securityEvent('users_listed', req, { results: users.length })
 
     res.json({
       users,
