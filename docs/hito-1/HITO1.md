@@ -41,6 +41,52 @@ Cifrados es una aplicación web de mensajería grupal y directa con cifrado de e
 | OS-6 | Los ataques quedan registrados y se pueden detectar | No repudio, monitoreo | ON-3, ON-4 |
 | OS-7 | La API no expone datos personales más allá de lo necesario | Confidencialidad, privacidad | ON-5 |
 
+### Flujo de datos por objetivo de seguridad
+
+Cada diagrama muestra solo los procesos, almacenes y flujos que intervienen en un objetivo. Las notas amarillas son los controles y las rojas, las fallas; las flechas rojas punteadas son ataques o fugas. La fuente editable está en [`dfd-os/dfd-os.drawio`](dfd-os/dfd-os.drawio) (una página por objetivo).
+
+#### OS-1 · Solo los miembros de un canal pueden leerlo y escribir en él
+
+La API toma la identidad del JWT y consulta `channel_members` antes de devolver o guardar mensajes; un usuario que no es miembro recibe 403.
+
+![DFD OS-1](dfd-os/dfd-os-1.png)
+
+#### OS-2 · Los mensajes y las llaves privadas nunca se almacenan en texto plano fuera del navegador
+
+El texto plano y la llave privada se quedan en el navegador; desde el Límite 1 en adelante solo viaja y se guarda texto cifrado.
+
+![DFD OS-2](dfd-os/dfd-os-2.png)
+
+#### OS-3 · Cualquier modificación de un mensaje o de un bloque es detectable
+
+Cada mensaje lleva su tag GCM y su firma, y la API lo registra en una cadena de bloques encadenada por hash. Solo los administradores pueden usar tamper y reset.
+
+![DFD OS-3](dfd-os/dfd-os-3.png)
+
+#### OS-4 · Solo usuarios autenticados acceden a la API y no pueden suplantar a otros
+
+El login compara el hash bcrypt y entrega un JWT; en cada petición la API verifica la firma y usa el `sub` del token como identidad.
+
+![DFD OS-4](dfd-os/dfd-os-4.png)
+
+#### OS-5 · La API resiste ráfagas, fuerza bruta y escaneos
+
+Todo el tráfico, legítimo o no, entra por el WAF; la API solo limita el login y el registro.
+
+![DFD OS-5](dfd-os/dfd-os-5.png)
+
+#### OS-6 · Los ataques quedan registrados y se pueden detectar
+
+El WAF y la API envían sus logs al SIEM, donde el Blue Team define las alertas y el dashboard.
+
+![DFD OS-6](dfd-os/dfd-os-6.png)
+
+#### OS-7 · La API no expone datos personales más allá de lo necesario
+
+Las rutas de búsqueda de contactos consultan la tabla `user`; la respuesta no debería incluir datos de usuarios con los que no se comparte un canal.
+
+![DFD OS-7](dfd-os/dfd-os-7.png)
+
 ### Impacto si se compromete
 
 | Escenario | Impacto |
