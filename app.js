@@ -162,6 +162,24 @@ function validateGroupName(name) {
   }
 }
 
+// H4 (PoC-02): escapa los comodines de LIKE/ILIKE de PostgreSQL (% _ y la barra \,
+// que es el caracter de escape por defecto) para que se busquen como texto literal.
+function escapeLikePattern(value) {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`)
+}
+
+// H4 (PoC-02, RS-05): la busqueda acepta solo los caracteres de un nombre de grupo
+// (GROUP_NAME_PATTERN) y entre 3 y 50 caracteres. Asi quedan fuera % * \ y ":".
+// "*" importa porque PostgREST lo trata igual que % en like/ilike, y ":" porque solo
+// existe en los canales "direct:<id>:<id>". Devuelve el patron listo para .ilike().
+function buildGroupSearchPattern(term) {
+  if (term.length < 3 || term.length > 50 || !GROUP_NAME_PATTERN.test(term)) {
+    throw new Error('La busqueda debe tener entre 3 y 50 letras, numeros o signos basicos.')
+  }
+
+  return `%${escapeLikePattern(term)}%`
+}
+
 function generateGroupCode(length = 8) {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   const bytes = crypto.randomBytes(length)
@@ -171,6 +189,13 @@ function generateGroupCode(length = 8) {
 
 function hashCode(code) {
   return crypto.createHash('sha256').update(code).digest('hex')
+}
+
+// Comparacion en tiempo constante de dos hashes del mismo largo
+function sameHash(a, b) {
+  const left = Buffer.from(String(a), 'utf8')
+  const right = Buffer.from(String(b), 'utf8')
+  return left.length === right.length && crypto.timingSafeEqual(left, right)
 }
 
 const DB_ERROR_MESSAGE = 'No se pudo completar la operacion.'
@@ -205,6 +230,23 @@ function requireAuth(req, res, next) {
     sendError(res, error, 401)
   }
 }
+
+// H4 (PoC-04, CWE-307): limite de codigos de grupo incorrectos por usuario.
+// La clave es el sub del JWT y no la IP: detras del WAF todos comparten IP, y asi un
+// atacante no puede repartir los intentos de su cuenta entre IPs. Va DESPUES de requireAuth.
+const groupJoinLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  keyGenerator: (req) => `user:${req.auth?.sub ?? 'anon'}`,
+  // Solo cuentan las respuestas que la ruta marca como fallo de autorizacion.
+  // Un error de la BD o una union correcta no acercan al usuario al bloqueo.
+  skipSuccessfulRequests: true,
+  requestWasSuccessful: (req, res) => !res.locals.authFailure,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Demasiados codigos incorrectos. Intenta de nuevo en 15 minutos.' },
+  handler: rateLimitHandler('group_join_user'),
+})
 
 // Solo los IDs de BLOCKCHAIN_ADMIN_IDS pueden alterar o reiniciar la cadena de demo
 const blockchainAdminIds = new Set(
@@ -697,17 +739,34 @@ app.post('/direct-conversations', requireAuth, async (req, res) => {
 
 app.get('/groups/search', requireAuth, async (req, res) => {
   try {
-    const name = (req.query.name || '').trim()
+    const name = String(req.query.name || '').trim()
 
     if (!name) {
       res.json({ groups: [] })
       return
     }
 
+    let pattern
+    try {
+      pattern = buildGroupSearchPattern(name)
+    } catch (validationError) {
+      // Una busqueda rechazada sigue llegando al SIEM: la regla CIF-05 la detecta
+      securityEvent('group_search', req, {
+        query: name.slice(0, 100),
+        suspicious: isSuspiciousGroupSearch(name),
+        rejected: true,
+        results: 0,
+        direct_results: 0,
+      })
+      throw validationError
+    }
+
+    // H4 (PoC-02): nunca se devuelven canales de chats directos
     const { data: channels, error } = await supabase
       .from('channels')
       .select('id, name, created_at, created_by')
-      .ilike('name', `%${name}%`)
+      .ilike('name', pattern)
+      .not('name', 'like', 'direct:%')
       .limit(20)
 
     if (error) throw dbError(error)
@@ -742,7 +801,11 @@ app.get('/groups/search', requireAuth, async (req, res) => {
 
     res.json({
       groups: channels.map((channel) => ({
-        ...channel,
+        id: channel.id,
+        name: channel.name,
+        created_at: channel.created_at,
+        // H4 (PoC-02): el creador solo se revela a si mismo
+        created_by: channel.created_by === req.auth.sub ? channel.created_by : null,
         is_member: memberChannelIds.has(channel.id),
       })),
     })
@@ -751,11 +814,12 @@ app.get('/groups/search', requireAuth, async (req, res) => {
   }
 })
 
-app.post('/groups/:id/join', requireAuth, async (req, res) => {
+app.post('/groups/:id/join', requireAuth, groupJoinLimiter, async (req, res) => {
   try {
-    const code = (req.body.code || '').trim()
+    const code = String(req.body.code || '').trim()
 
     if (!code) throw new Error('Ingresa el código del grupo.')
+    if (code.length > 32) throw new Error('Código de grupo incorrecto.')
 
     const { data: channel, error: channelError } = await supabase
       .from('channels')
@@ -764,9 +828,11 @@ app.post('/groups/:id/join', requireAuth, async (req, res) => {
       .maybeSingle()
 
     if (channelError) throw dbError(channelError)
-    if (!channel) throw new Error('Grupo no encontrado.')
 
-    if (hashCode(code) !== channel.key_hash) {
+    // H4 (PoC-04): grupo inexistente, canal directo (sin key_hash) y codigo incorrecto
+    // responden igual y cuentan para el limitador: no se confirma que un ID exista.
+    if (!channel || !channel.key_hash || !sameHash(hashCode(code), channel.key_hash)) {
+      res.locals.authFailure = true
       logWarn('groups', 'Codigo de grupo incorrecto', {
         groupId: req.params.id,
         userId: req.auth.sub,
