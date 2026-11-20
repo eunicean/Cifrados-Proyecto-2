@@ -1132,13 +1132,53 @@ app.get('/messages/:userId', requireAuth, async (req, res) => {
   }
 })
 
+// H4 (PoC-01, A01:2025 / CWE-359): antes /users devolvia el nombre, correo y llave
+// de TODOS los usuarios a cualquier cuenta, lo que servia de directorio para phishing.
+// Ahora solo se devuelven los usuarios con los que se comparte al menos un canal (grupos
+// y chats directos). Para iniciar un chat nuevo se usa el correo exacto en
+// POST /direct-conversations, sin listar a terceros.
 app.get('/users', requireAuth, async (req, res) => {
   try {
-    const { data: users, error } = await supabase
-      .from('user')
-      .select('id, name, email, key')
+    const { data: myMemberships, error: membershipError } = await supabase
+      .from('channel_members')
+      .select('channel_id')
+      .eq('user_id', req.auth.sub)
 
-    if (error) throw dbError(error)
+    if (membershipError) throw dbError(membershipError)
+
+    const channelIds = (myMemberships || [])
+      .map((membership) => membership.channel_id)
+      .filter(Boolean)
+
+    let users = []
+
+    if (channelIds.length > 0) {
+      const { data: coMembers, error: coMembersError } = await supabase
+        .from('channel_members')
+        .select('user_id')
+        .in('channel_id', channelIds)
+
+      if (coMembersError) throw dbError(coMembersError)
+
+      const contactIds = [
+        ...new Set(
+          (coMembers || [])
+            .map((member) => member.user_id)
+            .filter((id) => id && id !== req.auth.sub),
+        ),
+      ]
+
+      if (contactIds.length > 0) {
+        const { data: contacts, error: usersError } = await supabase
+          .from('user')
+          .select('id, name, email, key')
+          .in('id', contactIds)
+
+        if (usersError) throw dbError(usersError)
+
+        users = contacts || []
+      }
+    }
 
     securityEvent('users_listed', req, { results: users.length })
 
