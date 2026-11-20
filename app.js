@@ -162,6 +162,24 @@ function validateGroupName(name) {
   }
 }
 
+// H4 (PoC-02): escapa los comodines de LIKE/ILIKE de PostgreSQL (% _ y la barra \,
+// que es el caracter de escape por defecto) para que se busquen como texto literal.
+function escapeLikePattern(value) {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`)
+}
+
+// H4 (PoC-02, RS-05): la busqueda acepta solo los caracteres de un nombre de grupo
+// (GROUP_NAME_PATTERN) y entre 3 y 50 caracteres. Asi quedan fuera % * \ y ":".
+// "*" importa porque PostgREST lo trata igual que % en like/ilike, y ":" porque solo
+// existe en los canales "direct:<id>:<id>". Devuelve el patron listo para .ilike().
+function buildGroupSearchPattern(term) {
+  if (term.length < 3 || term.length > 50 || !GROUP_NAME_PATTERN.test(term)) {
+    throw new Error('La busqueda debe tener entre 3 y 50 letras, numeros o signos basicos.')
+  }
+
+  return `%${escapeLikePattern(term)}%`
+}
+
 function generateGroupCode(length = 8) {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   const bytes = crypto.randomBytes(length)
@@ -721,17 +739,34 @@ app.post('/direct-conversations', requireAuth, async (req, res) => {
 
 app.get('/groups/search', requireAuth, async (req, res) => {
   try {
-    const name = (req.query.name || '').trim()
+    const name = String(req.query.name || '').trim()
 
     if (!name) {
       res.json({ groups: [] })
       return
     }
 
+    let pattern
+    try {
+      pattern = buildGroupSearchPattern(name)
+    } catch (validationError) {
+      // Una busqueda rechazada sigue llegando al SIEM: la regla CIF-05 la detecta
+      securityEvent('group_search', req, {
+        query: name.slice(0, 100),
+        suspicious: isSuspiciousGroupSearch(name),
+        rejected: true,
+        results: 0,
+        direct_results: 0,
+      })
+      throw validationError
+    }
+
+    // H4 (PoC-02): nunca se devuelven canales de chats directos
     const { data: channels, error } = await supabase
       .from('channels')
       .select('id, name, created_at, created_by')
-      .ilike('name', `%${name}%`)
+      .ilike('name', pattern)
+      .not('name', 'like', 'direct:%')
       .limit(20)
 
     if (error) throw dbError(error)
@@ -766,7 +801,11 @@ app.get('/groups/search', requireAuth, async (req, res) => {
 
     res.json({
       groups: channels.map((channel) => ({
-        ...channel,
+        id: channel.id,
+        name: channel.name,
+        created_at: channel.created_at,
+        // H4 (PoC-02): el creador solo se revela a si mismo
+        created_by: channel.created_by === req.auth.sub ? channel.created_by : null,
         is_member: memberChannelIds.has(channel.id),
       })),
     })
