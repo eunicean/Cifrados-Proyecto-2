@@ -173,6 +173,13 @@ function hashCode(code) {
   return crypto.createHash('sha256').update(code).digest('hex')
 }
 
+// Comparacion en tiempo constante de dos hashes del mismo largo
+function sameHash(a, b) {
+  const left = Buffer.from(String(a), 'utf8')
+  const right = Buffer.from(String(b), 'utf8')
+  return left.length === right.length && crypto.timingSafeEqual(left, right)
+}
+
 const DB_ERROR_MESSAGE = 'No se pudo completar la operacion.'
 
 // El detalle de Supabase queda solo en el log; el cliente recibe un mensaje generico
@@ -205,6 +212,23 @@ function requireAuth(req, res, next) {
     sendError(res, error, 401)
   }
 }
+
+// H4 (PoC-04, CWE-307): limite de codigos de grupo incorrectos por usuario.
+// La clave es el sub del JWT y no la IP: detras del WAF todos comparten IP, y asi un
+// atacante no puede repartir los intentos de su cuenta entre IPs. Va DESPUES de requireAuth.
+const groupJoinLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  keyGenerator: (req) => `user:${req.auth?.sub ?? 'anon'}`,
+  // Solo cuentan las respuestas que la ruta marca como fallo de autorizacion.
+  // Un error de la BD o una union correcta no acercan al usuario al bloqueo.
+  skipSuccessfulRequests: true,
+  requestWasSuccessful: (req, res) => !res.locals.authFailure,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Demasiados codigos incorrectos. Intenta de nuevo en 15 minutos.' },
+  handler: rateLimitHandler('group_join_user'),
+})
 
 // Solo los IDs de BLOCKCHAIN_ADMIN_IDS pueden alterar o reiniciar la cadena de demo
 const blockchainAdminIds = new Set(
@@ -751,11 +775,12 @@ app.get('/groups/search', requireAuth, async (req, res) => {
   }
 })
 
-app.post('/groups/:id/join', requireAuth, async (req, res) => {
+app.post('/groups/:id/join', requireAuth, groupJoinLimiter, async (req, res) => {
   try {
-    const code = (req.body.code || '').trim()
+    const code = String(req.body.code || '').trim()
 
     if (!code) throw new Error('Ingresa el código del grupo.')
+    if (code.length > 32) throw new Error('Código de grupo incorrecto.')
 
     const { data: channel, error: channelError } = await supabase
       .from('channels')
@@ -764,9 +789,11 @@ app.post('/groups/:id/join', requireAuth, async (req, res) => {
       .maybeSingle()
 
     if (channelError) throw dbError(channelError)
-    if (!channel) throw new Error('Grupo no encontrado.')
 
-    if (hashCode(code) !== channel.key_hash) {
+    // H4 (PoC-04): grupo inexistente, canal directo (sin key_hash) y codigo incorrecto
+    // responden igual y cuentan para el limitador: no se confirma que un ID exista.
+    if (!channel || !channel.key_hash || !sameHash(hashCode(code), channel.key_hash)) {
+      res.locals.authFailure = true
       logWarn('groups', 'Codigo de grupo incorrecto', {
         groupId: req.params.id,
         userId: req.auth.sub,
