@@ -49,7 +49,11 @@ function createQuery(table) {
           const next = db.queue.length > 0 ? db.queue.shift() : {}
           const result = next.error
             ? { data: null, error: next.error }
-            : { data: next.data ?? (single ? defaultRow : [defaultRow]), error: null }
+            : {
+                // `{ data: null }` simula "no encontrado" en maybeSingle()
+                data: 'data' in next ? next.data : single ? defaultRow : [defaultRow],
+                error: null,
+              }
 
           return (resolve, reject) => Promise.resolve(result).then(resolve, reject)
         }

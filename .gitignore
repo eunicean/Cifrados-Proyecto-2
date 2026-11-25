@@ -8,3 +8,9 @@ coverage
 .scannerwork
 /docs/reporte
 /docs/enunciados
+
+# Videos de la demo (entregables para Canvas, no van al repo)
+*.mp4
+*.mov
+*.mkv
+*.webm

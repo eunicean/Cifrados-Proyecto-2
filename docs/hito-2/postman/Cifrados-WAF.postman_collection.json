@@ -452,6 +452,154 @@
           }
         }
       ]
+    },
+    {
+      "name": "3 · Demo H3 (firmas del WAF)",
+      "description": "Ataques nuevos para la demo del Hito 3 que la coleccion del H2 no cubria: CA-01 (SQLi), CA-02 (XSS) y la evasion del parche virtual (PoC-02). Correr la carpeta '1 · Sesion' antes para tener token. En modo On, CA-01 y CA-02 responden 403; la evasion pasa el WAF pero dispara CIF-05 por la API.",
+      "item": [
+        {
+          "name": "CA-01 · SQLi en login (CIF-01)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const t = new Date().toLocaleString('sv-SE', { timeZone: 'America/Guatemala' });",
+                  "pm.environment.set('ts_ca01', t);",
+                  "console.log('ca01', t, pm.response.code, pm.response.responseSize + ' bytes');",
+                  "pm.test('DetectionOnly: 401 | On: 403', () => pm.expect(pm.response.code).to.be.oneOf([401, 403]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Payload SQLi en el correo. CRS 942xxx (attack-sqli) -> CIF-01. DetectionOnly: 401 (credenciales invalidas). On: 403 del WAF.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"{{ca01_sqli_email}}\", \"password\": \"x\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "CA-02 · XSS en nombre de grupo (CIF-02)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const t = new Date().toLocaleString('sv-SE', { timeZone: 'America/Guatemala' });",
+                  "pm.environment.set('ts_ca02', t);",
+                  "console.log('ca02', t, pm.response.code, pm.response.responseSize + ' bytes');",
+                  "pm.test('DetectionOnly: 400 validacion | On: 403 WAF', () => pm.expect(pm.response.code).to.be.oneOf([400, 403]));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/groups",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "groups"
+              ]
+            },
+            "description": "Nombre de grupo con <img onerror>. CRS 941xxx (attack-xss) -> CIF-02. DetectionOnly: 400 (la validacion del nombre lo rechaza). On: 403 del WAF antes de llegar a la API.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"{{ca02_xss_name}}\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PoC-02 evasion · search?name=irect (CIF-05)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const t = new Date().toLocaleString('sv-SE', { timeZone: 'America/Guatemala' });",
+                  "pm.environment.set('ts_poc02_evasion', t);",
+                  "console.log('poc02_evasion', t, pm.response.code, pm.response.responseSize + ' bytes');",
+                  "pm.test('pasa el WAF (no 403)', () => pm.expect(pm.response.code).to.not.equal(403));",
+                  "pm.test('revela canal directo ajeno', () => pm.expect(pm.response.json().groups.some(g => g.name.startsWith('direct:') && !g.is_member)).to.be.true);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/groups/search?name={{poc_search_evasion}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "groups",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "name",
+                  "value": "{{poc_search_evasion}}"
+                }
+              ]
+            },
+            "description": "Fragmento 'irect' sin % ni ':' ni la palabra exacta 'direct': el parche virtual 10010 NO dispara, pero la busqueda sigue devolviendo canales direct:. La API marca api.direct_results>0 -> CIF-05. Demuestra que 10010 es contencion, no correccion (se arregla en el codigo en el H4)."
+          }
+        }
+      ]
     }
   ]
 }
